@@ -1,17 +1,9 @@
-import { Text, View, StyleSheet } from "react-native";
+import { View, Text } from 'react-native';
 
-export default function Index() {
+export default function SignUp() {
   return (
-    <View style={styles.container}>
-      <Text></Text>
+    <View className="flex-1 items-center justify-center bg-[#121212]">
+      <Text className="text-white text-lg">Cadastro</Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});

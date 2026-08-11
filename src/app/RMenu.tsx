@@ -1,17 +1,9 @@
-import { Text, View, StyleSheet } from "react-native";
+import { View, Text } from 'react-native';
 
-export default function Index() {
+export default function RMenu() {
   return (
-    <View style={styles.container}>
-      <Text></Text>
+    <View className="flex-1 bg-[#1A1A1A] p-4">
+      <Text className="text-white text-lg">Menu Direito (Glossário)</Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
