@@ -1,34 +1,37 @@
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
+import { legalStyles as styles } from '../styles/legalStyles';
 
 export default function Privacy() {
   const router = useRouter();
 
   return (
-    <SafeAreaView className="flex-1 bg-[#121212]">
-      <View className="flex-row items-center p-4 border-b border-gray-800">
-        <TouchableOpacity onPress={() => router.back()} className="mr-4">
-          <Text className="text-white text-lg">← Voltar</Text>
+    <SafeAreaView className={styles.container}>
+      <View className={styles.headerContainer}>
+        <TouchableOpacity onPress={() => router.back()} className="flex-row items-center mr-4">
+          <Feather name="arrow-left" size={14} color="#6b8cff" />
+          <Text className="text-[#6b8cff] text-xs font-medium ml-1.5">Voltar</Text>
         </TouchableOpacity>
-        <Text className="text-white text-xl font-bold">Política de Privacidade</Text>
+        <Text className={styles.headerTitle}>Política de Privacidade</Text>
       </View>
-      <ScrollView className="p-4">
-        <Text className="text-white text-2xl font-bold mb-4">Privacidade e Proteção de Dados</Text>
+      <ScrollView className={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+        <Text className={styles.pageTitle}>Privacidade e Governança de Dados</Text>
         
-        <Text className="text-white text-lg font-bold mt-4 mb-2">Seus Dados, Sua Propriedade</Text>
-        <Text className="text-gray-300 text-base leading-relaxed mb-4">
-          Nós tratamos a sua privacidade com a máxima seriedade. Todas as traduções realizadas, documentos upados e configurações de glossário são vinculados exclusivamente ao seu identificador de usuário (UID). Nossa infraestrutura de banco de dados utiliza Row Level Security (RLS) para garantir que ninguém, além de você, possa acessar seus arquivos.
+        <Text className={styles.sectionTitle}>Isolamento de Dados por Usuário</Text>
+        <Text className={styles.paragraph}>
+          Toda e qualquer requisição de tradução, histórico persistido e definições de glossário são protegidos por políticas de segurança a nível de linha (RLS) no banco de dados, sendo acessíveis unicamente mediante autenticação válida.
         </Text>
 
-        <Text className="text-white text-lg font-bold mt-4 mb-2">Direito ao Esquecimento</Text>
-        <Text className="text-gray-300 text-base leading-relaxed mb-4">
-          Em atendimento à LGPD, você possui o direito ao esquecimento. Isso significa que você pode deletar sua conta a qualquer momento, o que irá desencadear a exclusão imediata e irreversível de todos os seus documentos armazenados, histórico de traduções e termos do glossário dos nossos servidores.
+        <Text className={styles.sectionTitle}>Direito à Exclusão (LGPD)</Text>
+        <Text className={styles.paragraph}>
+          O usuário poderá, a qualquer tempo, solicitar o encerramento de sua conta e a remoção definitiva e irrecuperável de todo e qualquer dado pessoal ou técnico armazenado em nossos sistemas.
         </Text>
         
-        <Text className="text-white text-lg font-bold mt-4 mb-2">Armazenamento em Nuvem</Text>
-        <Text className="text-gray-300 text-base leading-relaxed mb-8">
-          Utilizamos serviços de nuvem seguros (Supabase/Firebase) para gerenciar o armazenamento. Arquivos temporários processados pela Inteligência Artificial não são utilizados para enriquecer o modelo e são descartados assim que a operação é concluída.
+        <Text className={styles.sectionTitle}>Segurança de Comunicação</Text>
+        <Text className={styles.lastParagraph}>
+          As transmissões entre o cliente e os provedores de computação em nuvem utilizam protocolos criptografados (TLS/HTTPS).
         </Text>
       </ScrollView>
     </SafeAreaView>
