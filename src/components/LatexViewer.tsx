@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import katex from "katex";
@@ -10,7 +10,7 @@ interface LatexViewerProps {
 }
 
 /**
- * Renderizador de fórmulas e documentos LaTeX com KaTeX real, transições fluidas e layout responsivo
+ * Renderizador Completo de Documentos e Fórmulas LaTeX com KaTeX e Tipografia Científica
  */
 export default function LatexViewer({
   latexCode,
@@ -44,7 +44,7 @@ export default function LatexViewer({
     }
   };
 
-  // Impressão / Salvar como PDF
+  // Impressão / Exportação em PDF
   const handlePrintPDF = () => {
     if (typeof window !== "undefined") {
       const printWindow = window.open("", "_blank");
@@ -57,27 +57,36 @@ export default function LatexViewer({
           <title>${langTitle}</title>
           <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
           <style>
+            @page { margin: 2cm; size: A4; }
             body {
-              font-family: 'Times New Roman', Times, serif;
-              padding: 40px 60px;
+              font-family: 'Latin Modern Roman', 'Times New Roman', Times, serif;
+              padding: 20px 40px;
               color: #111;
               line-height: 1.6;
-              font-size: 12pt;
-              max-width: 800px;
+              font-size: 11pt;
+              max-width: 820px;
               margin: 0 auto;
+              background: #fff;
             }
-            h1 { font-size: 18pt; text-align: center; margin-bottom: 20px; }
-            h2 { font-size: 14pt; margin-top: 25px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-            h3 { font-size: 12pt; margin-top: 20px; font-weight: bold; }
-            p { text-align: justify; margin-bottom: 14px; text-indent: 1.5em; }
-            .math-block { text-align: center; margin: 20px 0; }
+            h1 { font-size: 17pt; text-align: center; margin: 24px 0 16px 0; font-weight: bold; }
+            h2 { font-size: 13pt; margin: 20px 0 10px 0; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+            h3 { font-size: 11.5pt; margin: 16px 0 8px 0; font-weight: bold; color: #222; }
+            p { text-align: justify; margin-bottom: 12px; text-indent: 1.5em; }
+            p:first-of-type { text-indent: 0; }
+            .math-display { text-align: center; margin: 18px 0; overflow-x: auto; padding: 6px 0; }
+            ul, ol { margin: 10px 0 14px 24px; padding: 0; }
+            li { margin-bottom: 6px; }
+            table { border-collapse: collapse; margin: 16px auto; width: 90%; }
+            th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+            th { background: #f5f5f5; font-weight: bold; }
+            .katex { font-size: 1.05em; }
             @media print {
               body { padding: 0; }
             }
           </style>
         </head>
         <body>
-          ${convertLatexToHtmlWithKatex(latexCode)}
+          ${convertFullLatexToHtml(latexCode, false)}
         </body>
         </html>
       `;
@@ -86,141 +95,19 @@ export default function LatexViewer({
       printWindow.document.close();
       setTimeout(() => {
         printWindow.print();
-      }, 700);
+      }, 600);
     }
   };
 
-  // Renderiza uma equação matemática com KaTeX real
-  const renderMathFormula = (rawFormula: string, isBlock: boolean = false, key: string = "math") => {
-    try {
-      const cleanFormula = rawFormula
-        .replace(/\\begin\{equation\}|\\end\{equation\}|\\\[|\\\]|\$\$/g, "")
-        .trim();
-
-      const html = katex.renderToString(cleanFormula, {
-        displayMode: isBlock,
-        throwOnError: false,
-      });
-
-      if (Platform.OS === "web") {
-        return (
-          <div
-            key={key}
-            className="animate-smooth-fade"
-            style={{
-              display: isBlock ? "flex" : "inline-block",
-              justifyContent: isBlock ? "center" : "initial",
-              margin: isBlock ? "16px 0" : "0 4px",
-              padding: isBlock ? "14px 18px" : "0",
-              background: isBlock ? "#0c0c12" : "transparent",
-              borderRadius: isBlock ? "12px" : "0",
-              border: isBlock ? "1px solid rgba(107, 140, 255, 0.2)" : "none",
-              color: "#e8e8f0",
-              overflowX: "auto",
-              transition: "all 0.25s ease",
-            }}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        );
-      }
-    } catch (e) {
-      console.warn("KaTeX render error:", e);
-    }
-
-    return (
-      <View key={key} className="bg-[#0c0c12] p-3 rounded-xl border border-[#6b8cff]/20 my-2 animate-smooth-fade">
-        <Text className="text-[#6b8cff] font-mono text-xs">{rawFormula}</Text>
-      </View>
-    );
-  };
-
-  // Renderiza o documento estruturado com KaTeX
-  const renderFormattedContent = () => {
-    const lines = latexCode.split("\n");
-    const elements: React.ReactNode[] = [];
-    let paragraphBuffer: string[] = [];
-
-    const flushParagraph = (keyPrefix: string) => {
-      if (paragraphBuffer.length > 0) {
-        const text = paragraphBuffer.join(" ");
-        elements.push(
-          <Text key={`${keyPrefix}-${elements.length}`} className="text-[#c8c8d8] text-xs leading-relaxed mb-3 text-justify animate-smooth-fade">
-            {cleanLatexInline(text)}
-          </Text>
-        );
-        paragraphBuffer = [];
-      }
-    };
-
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        flushParagraph(`p-${index}`);
-        return;
-      }
-
-      // Título principal
-      if (trimmed.startsWith("\\title{") || trimmed.startsWith("\\chapter{")) {
-        flushParagraph(`title-${index}`);
-        const titleMatch = trimmed.match(/\\(?:title|chapter)\{([^}]+)\}/);
-        elements.push(
-          <Text key={`title-${index}`} className="text-[#e8e8f0] text-base font-bold mb-4 text-center animate-smooth-fade">
-            {titleMatch ? titleMatch[1] : trimmed}
-          </Text>
-        );
-      }
-      // Seção
-      else if (trimmed.startsWith("\\section{") || trimmed.startsWith("\\section*{")) {
-        flushParagraph(`sec-${index}`);
-        const secMatch = trimmed.match(/\\section\*?\{([^}]+)\}/);
-        elements.push(
-          <View key={`sec-${index}`} className="mt-4 mb-2 pb-1 border-b border-white/[0.07] animate-smooth-fade">
-            <Text className="text-[#e8e8f0] text-xs font-bold uppercase tracking-wider">
-              {secMatch ? secMatch[1] : trimmed}
-            </Text>
-          </View>
-        );
-      }
-      // Subseção
-      else if (trimmed.startsWith("\\subsection{")) {
-        flushParagraph(`subsec-${index}`);
-        const subMatch = trimmed.match(/\\subsection\{([^}]+)\}/);
-        elements.push(
-          <Text key={`subsec-${index}`} className="text-[#6b8cff] text-xs font-semibold mt-3 mb-1.5 animate-smooth-fade">
-            {subMatch ? subMatch[1] : trimmed}
-          </Text>
-        );
-      }
-      // Bloco de Equação Matemática
-      else if (
-        trimmed.startsWith("\\[") ||
-        trimmed.startsWith("\\begin{equation}") ||
-        trimmed.startsWith("$$")
-      ) {
-        flushParagraph(`eq-${index}`);
-        elements.push(renderMathFormula(trimmed, true, `math-block-${index}`));
-      }
-      // Linhas normais
-      else {
-        if (
-          !trimmed.startsWith("\\documentclass") &&
-          !trimmed.startsWith("\\usepackage") &&
-          !trimmed.startsWith("\\begin{document}") &&
-          !trimmed.startsWith("\\end{document}")
-        ) {
-          paragraphBuffer.push(trimmed);
-        }
-      }
-    });
-
-    flushParagraph("final");
-    return elements;
-  };
+  // Converte o LaTeX para HTML formatado com KaTeX para visualização em tela escura
+  const renderedHtml = useMemo(() => {
+    return convertFullLatexToHtml(latexCode, true);
+  }, [latexCode]);
 
   return (
     <View className="flex-1 flex-col h-full overflow-hidden">
       {/* Barra Superior com wrap responsivo sem transbordar */}
-      <View className="flex-row flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-white/[0.07]">
+      <View className="flex-row flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-white/[0.07] flex-shrink-0">
         {/* Título do Documento com truncate */}
         <View className="flex-row items-center flex-1 min-w-[140px]">
           <Feather
@@ -243,7 +130,7 @@ export default function LatexViewer({
           {/* Alternar Visualização */}
           <View className="flex-row bg-white/[0.05] rounded-lg p-0.5 border border-white/[0.06] transition-all duration-200">
             <TouchableOpacity
-              className={`px-2 py-1 rounded-md active:scale-95 transition-all duration-200 ${
+              className={`px-2.5 py-1 rounded-md active:scale-95 transition-all duration-200 ${
                 viewMode === "rendered" ? "bg-[#6b8cff] shadow-sm shadow-[#6b8cff]/30" : "bg-transparent hover:bg-white/[0.04]"
               }`}
               onPress={() => setViewMode("rendered")}
@@ -258,7 +145,7 @@ export default function LatexViewer({
             </TouchableOpacity>
 
             <TouchableOpacity
-              className={`px-2 py-1 rounded-md active:scale-95 transition-all duration-200 ${
+              className={`px-2.5 py-1 rounded-md active:scale-95 transition-all duration-200 ${
                 viewMode === "code" ? "bg-[#6b8cff] shadow-sm shadow-[#6b8cff]/30" : "bg-transparent hover:bg-white/[0.04]"
               }`}
               onPress={() => setViewMode("code")}
@@ -306,10 +193,26 @@ export default function LatexViewer({
         </View>
       </View>
 
-      {/* Conteúdo Renderizado ou Código Fonte */}
+      {/* Conteúdo Renderizado com KaTeX ou Código Fonte */}
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         {viewMode === "rendered" ? (
-          <View className="px-1 py-1 animate-smooth-fade">{renderFormattedContent()}</View>
+          Platform.OS === "web" ? (
+            <div
+              className="latex-rendered-document animate-smooth-fade"
+              style={{
+                fontFamily: "system-ui, -apple-system, sans-serif",
+                color: "#d0d0e0",
+                lineHeight: "1.75",
+                fontSize: "13px",
+                padding: "4px 8px 30px 4px",
+              }}
+              dangerouslySetInnerHTML={{ __html: renderedHtml }}
+            />
+          ) : (
+            <View className="p-3">
+              <Text className="text-[#d0d0e0] font-mono text-xs">{latexCode}</Text>
+            </View>
+          )
         ) : (
           <View className="bg-[#0c0c12] p-4 rounded-xl border border-white/[0.07] animate-smooth-fade">
             <Text className="text-[#c8c8d8] font-mono text-xs leading-relaxed select-text">
@@ -322,51 +225,143 @@ export default function LatexViewer({
   );
 }
 
-function cleanLatexInline(text: string): string {
-  return text
-    .replace(/\\textbf\{([^}]+)\}/g, "$1")
-    .replace(/\\textit\{([^}]+)\}/g, "$1")
-    .replace(/\\emph\{([^}]+)\}/g, "$1")
-    .replace(/\\cite\{([^}]+)\}/g, "[$1]")
-    .replace(/\\ref\{([^}]+)\}/g, "$1")
-    .replace(/\\label\{([^}]+)\}/g, "")
-    .replace(/\\%/g, "%")
-    .replace(/\\&/g, "&");
-}
+/**
+ * Converte código LaTeX completo para HTML com KaTeX renderizando fórmulas inline ($...$) e display blocks ($$...$$)
+ */
+function convertFullLatexToHtml(latex: string, isDarkTheme: boolean): string {
+  if (!latex) return "<p class='text-[#6b6b80] italic'>Nenhum conteúdo para exibir.</p>";
 
-function convertLatexToHtmlWithKatex(latex: string): string {
-  let html = latex
-    .replace(/\\title\{([^}]+)\}/g, "<h1>$1</h1>")
-    .replace(/\\chapter\{([^}]+)\}/g, "<h1>$1</h1>")
-    .replace(/\\section\*?\{([^}]+)\}/g, "<h2>$1</h2>")
-    .replace(/\\subsection\*?\{([^}]+)\}/g, "<h3>$1</h3>")
-    .replace(/\\textbf\{([^}]+)\}/g, "<strong>$1</strong>")
-    .replace(/\\textit\{([^}]+)\}/g, "<em>$1</em>");
+  // Remove preâmbulo puramente técnico do LaTeX para visualização limpa
+  let clean = latex
+    .replace(/\\documentclass(\[[^\]]*\])?\{[^}]+\}/g, "")
+    .replace(/\\usepackage(\[[^\]]*\])?\{[^}]+\}/g, "")
+    .replace(/\\begin\{document\}/g, "")
+    .replace(/\\end\{document\}/g, "")
+    .replace(/\\maketitle/g, "");
 
-  html = html.replace(
-    /\\(?:begin\{equation\}|\[)([\s\S]*?)\\(?:end\{equation\}|\])/g,
-    (_, formula) => {
+  // 1. Proteger e renderizar Equações em Bloco (Display Math)
+  clean = clean.replace(
+    /\\begin\{(equation|align|gather|multline)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,
+    (_, __, formula) => {
       try {
-        return `<div class="math-block">${katex.renderToString(formula.trim(), { displayMode: true })}</div>`;
-      } catch (e) {
-        return `<div class="math-block">$$${formula}$$</div>`;
+        const mathHtml = katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false });
+        return isDarkTheme
+          ? `<div style="display:flex;justify-content:center;margin:18px 0;padding:12px;background:#0c0c12;border-radius:12px;border:1px solid rgba(107,140,255,0.25);overflow-x:auto;">${mathHtml}</div>`
+          : `<div class="math-display">${mathHtml}</div>`;
+      } catch {
+        return `<div class="math-display">$$${formula}$$</div>`;
       }
     }
   );
 
-  const lines = html.split("\n\n");
-  return lines
-    .map((l) => {
-      const trimmed = l.trim();
-      if (
-        trimmed.startsWith("<h1") ||
-        trimmed.startsWith("<h2") ||
-        trimmed.startsWith("<h3") ||
-        trimmed.startsWith("<div")
-      ) {
-        return trimmed;
-      }
-      return `<p>${trimmed}</p>`;
-    })
-    .join("\n");
+  clean = clean.replace(/\\\[([\s\S]*?)\\\]/g, (_, formula) => {
+    try {
+      const mathHtml = katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false });
+      return isDarkTheme
+        ? `<div style="display:flex;justify-content:center;margin:18px 0;padding:12px;background:#0c0c12;border-radius:12px;border:1px solid rgba(107,140,255,0.25);overflow-x:auto;">${mathHtml}</div>`
+        : `<div class="math-display">${mathHtml}</div>`;
+    } catch {
+      return `<div class="math-display">$$${formula}$$</div>`;
+    }
+  });
+
+  clean = clean.replace(/\$\$([\s\S]*?)\$\$/g, (_, formula) => {
+    try {
+      const mathHtml = katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false });
+      return isDarkTheme
+        ? `<div style="display:flex;justify-content:center;margin:18px 0;padding:12px;background:#0c0c12;border-radius:12px;border:1px solid rgba(107,140,255,0.25);overflow-x:auto;">${mathHtml}</div>`
+        : `<div class="math-display">${mathHtml}</div>`;
+    } catch {
+      return `<div class="math-display">$$${formula}$$</div>`;
+    }
+  });
+
+  // 2. Proteger e renderizar Fórmulas Inline ($...$ e \(...\))
+  clean = clean.replace(/\$([^\$\n]+?)\$/g, (_, formula) => {
+    try {
+      return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
+    } catch {
+      return `<code>$${formula}$</code>`;
+    }
+  });
+
+  clean = clean.replace(/\\\((.+?)\\\)/g, (_, formula) => {
+    try {
+      return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
+    } catch {
+      return `<code>$${formula}$</code>`;
+    }
+  });
+
+  // 3. Estruturas de Títulos e Seções
+  clean = clean.replace(/\\title\{([^}]+)\}/g, isDarkTheme
+    ? '<h1 style="color:#ffffff;font-size:18px;font-weight:700;text-align:center;margin:20px 0 16px 0;">$1</h1>'
+    : '<h1>$1</h1>');
+
+  clean = clean.replace(/\\section\*?\{([^}]+)\}/g, isDarkTheme
+    ? '<h2 style="color:#6b8cff;font-size:14px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;margin:22px 0 10px 0;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,0.08);">$1</h2>'
+    : '<h2>$1</h2>');
+
+  clean = clean.replace(/\\subsection\*?\{([^}]+)\}/g, isDarkTheme
+    ? '<h3 style="color:#e8e8f0;font-size:13px;font-weight:600;margin:16px 0 8px 0;">$1</h3>'
+    : '<h3>$1</h3>');
+
+  clean = clean.replace(/\\subsubsection\*?\{([^}]+)\}/g, isDarkTheme
+    ? '<h4 style="color:#c8c8d8;font-size:12px;font-weight:600;margin:12px 0 6px 0;">$1</h4>'
+    : '<h4>$1</h4>');
+
+  // 4. Formatações de Texto Inline
+  clean = clean
+    .replace(/\\textbf\{([^}]+)\}/g, "<strong style='color:#ffffff;'>$1</strong>")
+    .replace(/\\textit\{([^}]+)\}/g, "<em>$1</em>")
+    .replace(/\\emph\{([^}]+)\}/g, "<em>$1</em>")
+    .replace(/\\underline\{([^}]+)\}/g, "<u>$1</u>")
+    .replace(/\\cite\{([^}]+)\}/g, "<span style='color:#6b8cff;font-size:11px;'>[$1]</span>")
+    .replace(/\\ref\{([^}]+)\}/g, "<span style='color:#6b8cff;'>$1</span>")
+    .replace(/\\label\{([^}]+)\}/g, "")
+    .replace(/\\%/g, "%")
+    .replace(/\\&/g, "&");
+
+  // 5. Listas (itemize / enumerate)
+  clean = clean.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g, (_, items) => {
+    const listItems = items
+      .split("\\item")
+      .map((i: string) => i.trim())
+      .filter((i: string) => i.length > 0)
+      .map((i: string) => `<li style="margin-bottom:6px;">${i}</li>`)
+      .join("");
+    return `<ul style="margin:12px 0 16px 20px;list-style-type:disc;">${listItems}</ul>`;
+  });
+
+  clean = clean.replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g, (_, items) => {
+    const listItems = items
+      .split("\\item")
+      .map((i: string) => i.trim())
+      .filter((i: string) => i.length > 0)
+      .map((i: string) => `<li style="margin-bottom:6px;">${i}</li>`)
+      .join("");
+    return `<ol style="margin:12px 0 16px 20px;list-style-type:decimal;">${listItems}</ol>`;
+  });
+
+  // 6. Parágrafos estruturados
+  const blocks = clean.split(/\n\s*\n/);
+  const htmlBlocks = blocks.map((block) => {
+    const trimmed = block.trim();
+    if (!trimmed) return "";
+    if (
+      trimmed.startsWith("<h1") ||
+      trimmed.startsWith("<h2") ||
+      trimmed.startsWith("<h3") ||
+      trimmed.startsWith("<h4") ||
+      trimmed.startsWith("<div") ||
+      trimmed.startsWith("<ul") ||
+      trimmed.startsWith("<ol") ||
+      trimmed.startsWith("<table")
+    ) {
+      return trimmed;
+    }
+    return `<p style="margin-bottom:14px;text-align:justify;color:${isDarkTheme ? "#c8c8d8" : "#222"};">${trimmed}</p>`;
+  });
+
+  return htmlBlocks.join("\n");
 }
