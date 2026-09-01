@@ -2,12 +2,13 @@
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
-// Lista de modelos suportados em ordem de preferência para tolerância a falhas e alta demanda
+// Lista de modelos oficiais ativos em ordem de preferência (priorizando Gemini 3.5 Flash)
 const FALLBACK_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-flash-latest",
+  "gemini-3.5-flash",
   "gemini-3.6-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-3.7-flash",
+  "gemini-flash-latest",
+  "gemini-3.5-flash-lite",
 ];
 
 export interface TermDecision {
