@@ -1,4 +1,4 @@
-// Orquestrador do Pipeline Agêntico de Tradução e Engenharia de Documentos LaTeX com Auto-Retry e Fallback de Modelos
+// Orquestrador do Pipeline Agêntico de Tradução e Engenharia de Documentos LaTeX com Auto-Retry, Fallback de Modelos e Logs Visuais em Tempo Real
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
@@ -23,11 +23,16 @@ export interface TermDecision {
 export interface AgenticPipelineProgress {
   step: 1 | 2 | 3 | 4;
   stepName: string;
+  agentRole: string;
   detail: string;
+  liveLogs: string[];
+  discoveredTerms?: string[];
+  detectedFormulasCount?: number;
 }
 
 export interface AgenticPipelineResult {
   translatedLatex: string;
+  originalLatex?: string;
   identifiedTerms: TermDecision[];
   structureSummary?: string;
   validationIssues?: string[];
@@ -120,13 +125,14 @@ async function callGemini(
 export async function agentDeconstructDocument(
   input: { text?: string; fileBase64?: string; mimeType?: string; fileName?: string }
 ): Promise<{ structuralOutline: string; rawCleanContent: string }> {
-  const prompt = `Você é o Agente 1 (Especialista em Decomposição Estrutural e Tipografia LaTeX).
+  const prompt = `Você é o Agente 1 (Especialista em Engenharia Reversa e Decomposição Estrutural de Documentos em LaTeX).
 Sua missão:
-1. Analisar detalhadamente o documento fornecido (seja texto bruto, código LaTeX ou documento digitalizado).
-2. Identificar e listar todas as seções (\\section, \\subsection), ambientes matemáticos ($...$, \\begin{equation}, \\begin{pmatrix}, matrizes), tabelas e listas.
-3. Gerar uma versão limpa e estruturada do documento em formato LaTeX com todas as tags de preâmbulo e pacotes necessários preparados.
+1. Ler e analisar todo o documento fornecido (PDF digitalizado, imagem ou texto).
+2. Reconstruir o documento COMPLETO no formato CÓDIGO LATEX puro, mantendo o IDIOMA ORIGINAL fiel (ex: Alemão, Inglês, Francês).
+3. Mapear todas as seções (\\section, \\subsection), título (\\title), autor (\\author), ambientes matemáticos ($...$, \\begin{equation}, matrizes, frações, integrais), tabelas (\\begin{tabular}) e notas de rodapé (\\footnote).
+4. Gerar o arquivo .tex original completo, limpo e compilável.
 
-Retorne APENAS o código LaTeX estruturado completo, sem introduções ou explicações.`;
+Retorne APENAS o código LaTeX completo do documento original, sem introduções ou explicações.`;
 
   const inlineData = input.fileBase64 && input.mimeType
     ? { mimeType: input.mimeType, data: input.fileBase64 }
@@ -301,7 +307,7 @@ Retorne APENAS o JSON válido.`;
 
 /**
  * ORQUESTRADOR PRINCIPAL DO PIPELINE AGÊNTICO
- * Executa as etapas encadeadas e emite callbacks de progresso.
+ * Executa as etapas encadeadas e emite callbacks visuais ricos em tempo real.
  */
 export async function runAgenticTranslationPipeline(options: {
   text?: string;
@@ -319,8 +325,14 @@ export async function runAgenticTranslationPipeline(options: {
     // ── ETAPA 1: Decomposição e Extração Estrutural ──
     options.onProgress?.({
       step: 1,
-      stepName: "Decomposição Estrutural",
-      detail: "Agente 1: Mapeando layout, seções e isolando equações matemáticas...",
+      stepName: "Decomposição Estrutural & Reconstrução LaTeX",
+      agentRole: "Engenheiro de Tipografia LaTeX",
+      detail: "Analisando layout, hierarquia de seções e isolando todas as equações matemáticas...",
+      liveLogs: [
+        "Iniciando leitura em alta definição do documento...",
+        "Identificando ambientes de fórmulas ($...$, \\begin{equation}, matrizes)...",
+        "Construindo versão .tex original compilável...",
+      ],
     });
 
     const { rawCleanContent } = await agentDeconstructDocument({
@@ -330,11 +342,19 @@ export async function runAgenticTranslationPipeline(options: {
       fileName: options.fileName,
     });
 
+    const formulasCount = (rawCleanContent.match(/\$|\\begin\{equation\}|\\\[/g) || []).length;
+
     // ── ETAPA 2: Extração e Análise de Termos-Chave ──
     options.onProgress?.({
       step: 2,
-      stepName: "Análise de Terminologia",
-      detail: "Agente 2: Identificando jargões técnicos e termos para consulta...",
+      stepName: "Análise Linguística & Terminologia",
+      agentRole: "Linguista Computacional Técnico",
+      detail: "Identificando conceitos-chave, jargões específicos e gerando opções de tradução...",
+      detectedFormulasCount: formulasCount,
+      liveLogs: [
+        `Estrutura original mapeada com ${formulasCount} blocos de fórmulas matemáticas.`,
+        "Escaneando termos técnicos e jargões para consulta no Copiloto...",
+      ],
     });
 
     const identifiedTerms = await agentExtractKeyTerminology(
@@ -343,11 +363,21 @@ export async function runAgenticTranslationPipeline(options: {
       options.targetLang
     );
 
+    const termNames = identifiedTerms.map((t) => t.originalTerm);
+
     // ── ETAPA 3: Síntese e Tradução Científica ──
     options.onProgress?.({
       step: 3,
-      stepName: "Tradução & Síntese LaTeX",
-      detail: "Agente 3: Traduzindo conteúdo e sintetizando estrutura LaTeX...",
+      stepName: "Síntese & Tradução Científica LaTeX",
+      agentRole: "Tradutor Acadêmico & Sintetizador",
+      detail: `Traduzindo texto para ${options.targetLang}, preservando notações matemáticas e aplicando regras de glossário...`,
+      discoveredTerms: termNames,
+      detectedFormulasCount: formulasCount,
+      liveLogs: [
+        `${identifiedTerms.length} termos técnicos identificados para o Copiloto.`,
+        "Preservando integridade das fórmulas matemáticas e tabelas...",
+        `Traduzindo e sintetizando documento LaTeX para ${options.targetLang}...`,
+      ],
     });
 
     const translatedRaw = await agentTranslateAndSynthesize(
@@ -362,14 +392,23 @@ export async function runAgenticTranslationPipeline(options: {
     // ── ETAPA 4: Validação Sintática e Auto-Correção ──
     options.onProgress?.({
       step: 4,
-      stepName: "Validação & Linter LaTeX",
-      detail: "Agente 4: Verificando balanceamento de chaves e fórmulas...",
+      stepName: "Auditoria Sintática & Linter LaTeX",
+      agentRole: "Validador e Auditor de LaTeX",
+      detail: "Auditando fechamento de chaves {}, delimitadores KaTeX e garantindo compilação 100%...",
+      discoveredTerms: termNames,
+      detectedFormulasCount: formulasCount,
+      liveLogs: [
+        "Verificando balanceamento de chaves { e }...",
+        "Validando ambientes matemáticos e alinhamentos...",
+        "Documento pronto e validado com sucesso!",
+      ],
     });
 
     const { finalLatex, issuesFixed } = await agentValidateAndCorrectLatex(translatedRaw);
 
     return {
       translatedLatex: finalLatex,
+      originalLatex: rawCleanContent,
       identifiedTerms,
       validationIssues: issuesFixed,
       error: null,

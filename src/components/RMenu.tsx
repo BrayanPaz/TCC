@@ -17,6 +17,7 @@ interface RMenuProps {
   currentOriginal: string;
   currentTranslated: string;
   identifiedTerms?: TermDecision[];
+  theme?: "dark" | "light";
   onOpenGlossary: () => void;
   onApplyAdjustment?: (newTranslated: string) => void;
   onApplyTermDecision?: (term: TermDecision, chosenOption: string) => void;
@@ -27,10 +28,13 @@ export default function RMenu({
   currentOriginal,
   currentTranslated,
   identifiedTerms = [],
+  theme = "dark",
   onOpenGlossary,
   onApplyAdjustment,
   onApplyTermDecision,
 }: RMenuProps) {
+  const isLight = theme === "light";
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "1",
@@ -137,7 +141,9 @@ export default function RMenu({
 
   return (
     <View
-      className={`h-full bg-[#13131c] border-l border-white/[0.07] flex-col justify-between overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+      className={`h-full ${
+        isLight ? "bg-[#f8f9fa] border-l border-[#e5e7eb]" : "bg-[#13131c] border-l border-white/[0.07]"
+      } flex-col justify-between overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
         isOpen
           ? "w-80 opacity-100 translate-x-0"
           : "w-0 opacity-0 translate-x-6 border-l-0 pointer-events-none"
@@ -149,17 +155,31 @@ export default function RMenu({
     >
       <View className="w-80 h-full flex-col justify-between flex-shrink-0">
         {/* Top Header: Alternador Chat / Termos e Botão Glossário */}
-        <View className="px-3.5 py-3 border-b border-white/[0.07] flex-row items-center justify-between gap-2">
-          <View className="flex-row bg-white/[0.05] rounded-lg p-0.5 border border-white/[0.06] flex-1">
+        <View
+          className={`px-3.5 py-3 flex-row items-center justify-between gap-2 border-b ${
+            isLight ? "border-neutral-200" : "border-white/[0.07]"
+          }`}
+        >
+          <View
+            className={`flex-row rounded-lg p-0.5 border flex-1 ${
+              isLight ? "bg-neutral-100 border-neutral-200" : "bg-white/[0.05] border-white/[0.06]"
+            }`}
+          >
             <TouchableOpacity
               className={`flex-1 py-1.5 rounded-md items-center justify-center transition-all ${
-                activeTab === "chat" ? "bg-[#6b8cff] shadow-sm" : "bg-transparent"
+                activeTab === "chat"
+                  ? "bg-[#6b8cff] shadow-sm"
+                  : "bg-transparent"
               }`}
               onPress={() => setActiveTab("chat")}
             >
               <Text
                 className={`text-[10px] font-medium ${
-                  activeTab === "chat" ? "text-white" : "text-[#6b6b80]"
+                  activeTab === "chat"
+                    ? "text-white font-bold"
+                    : isLight
+                    ? "text-neutral-600"
+                    : "text-[#6b6b80]"
                 }`}
               >
                 Chat Copiloto
@@ -168,13 +188,19 @@ export default function RMenu({
 
             <TouchableOpacity
               className={`flex-1 py-1.5 rounded-md items-center justify-center transition-all flex-row gap-1 ${
-                activeTab === "terms" ? "bg-[#6b8cff] shadow-sm" : "bg-transparent"
+                activeTab === "terms"
+                  ? "bg-[#6b8cff] shadow-sm"
+                  : "bg-transparent"
               }`}
               onPress={() => setActiveTab("terms")}
             >
               <Text
                 className={`text-[10px] font-medium ${
-                  activeTab === "terms" ? "text-white" : "text-[#6b6b80]"
+                  activeTab === "terms"
+                    ? "text-white font-bold"
+                    : isLight
+                    ? "text-neutral-600"
+                    : "text-[#6b6b80]"
                 }`}
               >
                 Termos ({identifiedTerms.length})
@@ -187,7 +213,11 @@ export default function RMenu({
 
           {/* Botão Glossário */}
           <TouchableOpacity
-            className="p-2 rounded-lg bg-white/[0.05] border border-white/[0.07] hover:bg-white/[0.08] active:scale-95"
+            className={`p-2 rounded-lg border active:scale-95 transition-all ${
+              isLight
+                ? "bg-white border-neutral-200 hover:bg-neutral-100"
+                : "bg-white/[0.05] border-white/[0.07] hover:bg-white/[0.08]"
+            }`}
             onPress={onOpenGlossary}
             title="Abrir Glossário"
           >
@@ -208,7 +238,11 @@ export default function RMenu({
                 return (
                   <View
                     key={m.id}
-                    className="bg-[#0c0c12] border border-[#6b8cff]/30 rounded-xl p-3 mb-3 animate-smooth-fade"
+                    className={`rounded-xl p-3 mb-3 animate-smooth-fade border ${
+                      isLight
+                        ? "bg-white border-blue-200 shadow-sm"
+                        : "bg-[#0c0c12] border-[#6b8cff]/30"
+                    }`}
                   >
                     <View className="flex-row items-center gap-1.5 mb-1.5">
                       <Feather name="layers" size={12} color="#6b8cff" />
@@ -216,7 +250,11 @@ export default function RMenu({
                         Consulta Terminológica Ativa
                       </Text>
                     </View>
-                    <Text className="text-[#a0a0b8] text-[11px] leading-relaxed mb-2.5">
+                    <Text
+                      className={`text-[11px] leading-relaxed mb-2.5 ${
+                        isLight ? "text-neutral-600" : "text-[#a0a0b8]"
+                      }`}
+                    >
                       {m.text}
                     </Text>
                     <TouchableOpacity
@@ -231,17 +269,26 @@ export default function RMenu({
                 );
               }
 
+              const isUser = m.role === "user";
               return (
                 <View
                   key={m.id}
-                  className={`${
-                    m.role === "user" ? styles.userBubble : styles.aiBubble
-                  } animate-smooth-fade`}
+                  className={`p-3 rounded-2xl mb-2.5 max-w-[88%] animate-smooth-fade ${
+                    isUser
+                      ? "bg-[#6b8cff] self-end rounded-br-sm shadow-sm"
+                      : isLight
+                      ? "bg-white border border-neutral-200 self-start rounded-bl-sm shadow-sm"
+                      : "bg-white/[0.06] border border-white/[0.06] self-start rounded-bl-sm"
+                  }`}
                 >
                   <Text
-                    className={
-                      m.role === "user" ? styles.userBubbleText : styles.aiBubbleText
-                    }
+                    className={`text-xs leading-relaxed ${
+                      isUser
+                        ? "text-white"
+                        : isLight
+                        ? "text-neutral-800"
+                        : "text-[#e8e8f0]"
+                    }`}
                   >
                     {m.text}
                   </Text>
@@ -250,9 +297,19 @@ export default function RMenu({
             })}
 
             {loading && (
-              <View className="flex-row items-center py-2.5 px-3.5 bg-white/[0.05] rounded-xl self-start mb-2 animate-smooth-fade">
+              <View
+                className={`flex-row items-center py-2.5 px-3.5 rounded-xl self-start mb-2 animate-smooth-fade ${
+                  isLight ? "bg-white border border-neutral-200" : "bg-white/[0.05]"
+                }`}
+              >
                 <ActivityIndicator size="small" color="#6b8cff" />
-                <Text className="text-[#6b6b80] text-xs ml-2">Pensando...</Text>
+                <Text
+                  className={`text-xs ml-2 ${
+                    isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                  }`}
+                >
+                  Pensando...
+                </Text>
               </View>
             )}
           </ScrollView>
@@ -264,7 +321,11 @@ export default function RMenu({
             {identifiedTerms.length === 0 ? (
               <View className="items-center justify-center py-12 px-4">
                 <Feather name="check-circle" size={24} color="#6b6b80" />
-                <Text className="text-[#e8e8f0] text-xs font-semibold mt-3">
+                <Text
+                  className={`text-xs font-semibold mt-3 ${
+                    isLight ? "text-neutral-800" : "text-[#e8e8f0]"
+                  }`}
+                >
                   Nenhum termo ambíguo pendente
                 </Text>
                 <Text className="text-[#6b6b80] text-[11px] text-center mt-1">
@@ -275,24 +336,37 @@ export default function RMenu({
               identifiedTerms.map((term) => (
                 <View
                   key={term.id}
-                  className="bg-[#0c0c12] border border-white/[0.08] rounded-xl p-3.5 mb-3 animate-smooth-fade shadow-sm"
+                  className={`rounded-xl p-3.5 mb-3 animate-smooth-fade shadow-sm border ${
+                    isLight
+                      ? "bg-white border-neutral-200"
+                      : "bg-[#0c0c12] border-white/[0.08]"
+                  }`}
                 >
                   {/* Cabeçalho do Termo */}
                   <View className="flex-row items-center justify-between mb-1.5">
-                    <Text className="text-white text-xs font-bold font-mono">
+                    <Text
+                      className={`text-xs font-bold font-mono ${
+                        isLight ? "text-neutral-900" : "text-white"
+                      }`}
+                    >
                       "{term.originalTerm}"
                     </Text>
                     {term.selectedOption && (
                       <View className="flex-row items-center gap-1 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                        <Feather name="check" size={10} color="#4ade80" />
-                        <Text className="text-emerald-400 text-[9px] font-medium">Decidido</Text>
+                        <Feather name="check" size={10} color="#10b981" />
+                        <Text className="text-emerald-500 text-[9px] font-medium">Decidido</Text>
                       </View>
                     )}
                   </View>
 
                   {/* Contexto no Documento */}
                   {term.contextSentence ? (
-                    <Text className="text-[#6b6b80] text-[10px] italic mb-3" numberOfLines={2}>
+                    <Text
+                      className={`text-[10px] italic mb-3 ${
+                        isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                      }`}
+                      numberOfLines={2}
+                    >
                       "{term.contextSentence}"
                     </Text>
                   ) : null}
@@ -310,13 +384,21 @@ export default function RMenu({
                           className={`p-2 rounded-lg border transition-all flex-row items-center justify-between ${
                             isSelected
                               ? "bg-[#6b8cff]/20 border-[#6b8cff] shadow-sm"
+                              : isLight
+                              ? "bg-neutral-50 border-neutral-200 hover:bg-neutral-100"
                               : "bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.07]"
                           }`}
                           onPress={() => handleSelectOption(term, opt)}
                         >
                           <Text
                             className={`text-[11px] flex-1 ${
-                              isSelected ? "text-white font-semibold" : "text-[#c8c8d8]"
+                              isSelected
+                                ? isLight
+                                  ? "text-blue-900 font-bold"
+                                  : "text-white font-semibold"
+                                : isLight
+                                ? "text-neutral-700"
+                                : "text-[#c8c8d8]"
                             }`}
                           >
                             {opt}
@@ -328,11 +410,19 @@ export default function RMenu({
                   </View>
 
                   {/* Campo de Tradução Customizada */}
-                  <View className="flex-row gap-1.5 pt-2 border-t border-white/[0.05]">
+                  <View
+                    className={`flex-row gap-1.5 pt-2 border-t ${
+                      isLight ? "border-neutral-100" : "border-white/[0.05]"
+                    }`}
+                  >
                     <TextInput
-                      className="flex-1 bg-white/[0.05] border border-white/[0.08] rounded-lg px-2.5 py-1 text-[11px] text-white focus:border-[#6b8cff]/40"
+                      className={`flex-1 rounded-lg px-2.5 py-1 text-[11px] border ${
+                        isLight
+                          ? "bg-neutral-50 border-neutral-200 text-neutral-900"
+                          : "bg-white/[0.05] border-white/[0.08] text-white focus:border-[#6b8cff]/40"
+                      }`}
                       placeholder="Ou digite sua tradução..."
-                      placeholderTextColor="#6b6b80"
+                      placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
                       value={customTermInputs[term.id] || ""}
                       onChangeText={(val) =>
                         setCustomTermInputs((prev) => ({ ...prev, [term.id]: val }))
@@ -352,21 +442,31 @@ export default function RMenu({
           </ScrollView>
         )}
 
-        {/* Input de Chat (Somente visível na aba Chat) */}
+        {/* Input de Chat */}
         {activeTab === "chat" && (
-          <View className={styles.chatInputContainer}>
-            <View className={styles.chatInputBox}>
+          <View
+            className={`p-3 border-t ${
+              isLight ? "border-neutral-200 bg-white" : "border-white/[0.07] bg-[#13131c]"
+            }`}
+          >
+            <View
+              className={`flex-row items-center rounded-xl p-1.5 border ${
+                isLight ? "bg-neutral-50 border-neutral-200" : "bg-white/[0.05] border-white/[0.08]"
+              }`}
+            >
               <TextInput
-                className={styles.chatInput}
+                className={`flex-1 px-2.5 py-1 text-xs max-h-20 ${
+                  isLight ? "text-neutral-900" : "text-white"
+                }`}
                 placeholder="Peça ajustes no LaTeX..."
-                placeholderTextColor="#6b6b80"
+                placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
                 value={input}
                 onChangeText={setInput}
                 multiline
                 onSubmitEditing={handleSend}
               />
               <TouchableOpacity
-                className={`${styles.sendBtn} active:scale-95`}
+                className="w-8 h-8 rounded-lg bg-[#6b8cff] items-center justify-center active:scale-95"
                 onPress={handleSend}
                 disabled={loading || !input.trim()}
               >

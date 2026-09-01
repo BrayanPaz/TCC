@@ -96,6 +96,23 @@ interface UploadedFile {
 export default function Index() {
   const router = useRouter();
 
+  // Tema Claro / Escuro Global (Persistido no LocalStorage)
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return (window.localStorage.getItem("translatio_theme") as "dark" | "light") || "dark";
+    }
+    return "dark";
+  });
+
+  const isLight = theme === "light";
+
+  const handleToggleTheme = (newTheme: "dark" | "light") => {
+    setTheme(newTheme);
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("translatio_theme", newTheme);
+    }
+  };
+
   // Estados de layout
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(false);
@@ -226,6 +243,12 @@ export default function Index() {
         Alert.alert("Erro", pipelineResult.error);
       }
     } else {
+      // Garante que o texto original seja sempre a versão completa em LaTeX
+      const fullOriginal = pipelineResult.originalLatex && pipelineResult.originalLatex.trim().length > 10
+        ? pipelineResult.originalLatex
+        : (hasFile ? `\\section{Documento Original}\n${docOriginal}` : docOriginal);
+
+      setOriginalFullText(fullOriginal);
       setTranslatedFullText(pipelineResult.translatedLatex);
       setIdentifiedTerms(pipelineResult.identifiedTerms);
       setViewMode("reading");
@@ -236,7 +259,7 @@ export default function Index() {
           ? `Doc: ${selectedFile.name.substring(0, 26)}`
           : docOriginal.split("\n")[0].replace(/[\\[\]{}\\$]/g, "").substring(0, 30) || "Documento Traduzido";
 
-        await saveTranslationHistory(title, docOriginal, pipelineResult.translatedLatex, sourceLang, targetLang);
+        await saveTranslationHistory(title, fullOriginal, pipelineResult.translatedLatex, sourceLang, targetLang);
         loadUserData();
       } catch (e) {
         console.warn("Aviso ao salvar histórico:", e);
@@ -332,12 +355,18 @@ export default function Index() {
   };
 
   return (
-    <SafeAreaView className={styles.container}>
-      {/* ── 1. MENU ESQUERDO (LMenu) ── */}
+    <SafeAreaView
+      className={`flex-1 flex-row h-full overflow-hidden ${
+        isLight ? "bg-[#f3f4f6]" : "bg-[#0c0c12]"
+      }`}
+    >
+      {/* ── 1. MENU ESQUERDO (LMenu) COM SELETOR DE TEMA ── */}
       <LMenu
         isOpen={leftOpen}
         history={history}
         activeId={activeHistoryId}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
         onSelectHistory={handleSelectHistory}
         onDeleteHistory={handleDeleteHistory}
         onNewTranslation={() => {
@@ -354,19 +383,27 @@ export default function Index() {
       {/* TOGGLE ESQUERDO */}
       <View className="justify-center z-20">
         <TouchableOpacity
-          className={styles.sideToggleBtnLeft}
+          className={
+            isLight
+              ? "w-5 h-12 bg-white border border-neutral-300 border-l-0 rounded-r-xl items-center justify-center cursor-pointer hover:bg-neutral-100 active:scale-95 transition-all shadow-sm"
+              : styles.sideToggleBtnLeft
+          }
           onPress={() => setLeftOpen(!leftOpen)}
         >
           <Feather
             name={leftOpen ? "chevron-left" : "chevron-right"}
             size={12}
-            color="#6b6b80"
+            color={isLight ? "#4b5563" : "#6b6b80"}
           />
         </TouchableOpacity>
       </View>
 
       {/* ── 2. CONTEÚDO CENTRAL ── */}
-      <View className={styles.mainContent}>
+      <View
+        className={`flex-1 flex-col h-full transition-all duration-300 ${
+          isLight ? "bg-[#f3f4f6]" : "bg-[#0c0c12]"
+        }`}
+      >
         {viewMode === "new-chat" ? (
           /* TELA INICIAL (NOVO CHAT DE TRADUÇÃO AGÊNTICA) */
           <ScrollView
@@ -374,50 +411,97 @@ export default function Index() {
             showsVerticalScrollIndicator={false}
           >
             <View className={styles.newChatContainer}>
-              <Text className={styles.welcomeTitle}>Novo Chat de Tradução Agêntica</Text>
-              <Text className={styles.welcomeSubtitle}>
+              <Text
+                className={`text-lg font-semibold tracking-tight text-center mb-1 ${
+                  isLight ? "text-neutral-900" : "text-[#e8e8f0]"
+                }`}
+              >
+                Novo Chat de Tradução Agêntica
+              </Text>
+              <Text
+                className={`text-xs text-center mb-6 ${
+                  isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                }`}
+              >
                 Extração de layout, análise de terminologia e reconstrução matemática em LaTeX
               </Text>
 
               {/* SELETOR DE IDIOMAS EXPANSÍVEL */}
-              <View className={styles.langBar}>
+              <View
+                className={`w-full flex-row items-center justify-between rounded-xl px-4 py-2.5 mb-3 transition-all shadow-sm ${
+                  isLight ? "bg-white border border-neutral-200" : "bg-[#13131c] border border-white/[0.07]"
+                }`}
+              >
                 <TouchableOpacity
-                  className={styles.langPickerBtn}
+                  className={`flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-lg active:scale-95 transition-all ${
+                    isLight ? "bg-neutral-100 hover:bg-neutral-200" : "bg-white/[0.05] hover:bg-white/[0.08]"
+                  }`}
                   onPress={() => setShowLangModal("source")}
                 >
-                  <Text className={styles.langPickerText}>{getSourceLangName()}</Text>
-                  <Feather name="chevron-down" size={12} color="#6b6b80" />
+                  <Text
+                    className={`text-xs font-medium ${
+                      isLight ? "text-neutral-800" : "text-[#c8c8d8]"
+                    }`}
+                  >
+                    {getSourceLangName()}
+                  </Text>
+                  <Feather name="chevron-down" size={12} color={isLight ? "#6b7280" : "#6b6b80"} />
                 </TouchableOpacity>
 
-                <Feather name="arrow-right" size={12} color="#6b6b80" />
+                <Feather name="arrow-right" size={12} color={isLight ? "#9ca3af" : "#6b6b80"} />
 
                 <TouchableOpacity
-                  className={styles.langPickerBtn}
+                  className={`flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-lg active:scale-95 transition-all ${
+                    isLight ? "bg-neutral-100 hover:bg-neutral-200" : "bg-white/[0.05] hover:bg-white/[0.08]"
+                  }`}
                   onPress={() => setShowLangModal("target")}
                 >
-                  <Text className={styles.langPickerText}>{getTargetLangName()}</Text>
-                  <Feather name="chevron-down" size={12} color="#6b6b80" />
+                  <Text
+                    className={`text-xs font-medium ${
+                      isLight ? "text-neutral-800" : "text-[#c8c8d8]"
+                    }`}
+                  >
+                    {getTargetLangName()}
+                  </Text>
+                  <Feather name="chevron-down" size={12} color={isLight ? "#6b7280" : "#6b6b80"} />
                 </TouchableOpacity>
               </View>
 
               {/* ÁREA DE DROPZONE / UPLOAD DE DOCUMENTOS */}
               {selectedFile ? (
-                <View className="w-full bg-[#13131c] border border-[#6b8cff]/30 rounded-2xl p-5 mb-4 flex-row items-center justify-between">
+                <View
+                  className={`w-full rounded-2xl p-5 mb-4 flex-row items-center justify-between border ${
+                    isLight
+                      ? "bg-white border-blue-200 shadow-sm"
+                      : "bg-[#13131c] border-[#6b8cff]/30"
+                  }`}
+                >
                   <View className="flex-row items-center flex-1 mr-3">
                     <View className="w-10 h-10 rounded-xl bg-[#6b8cff]/20 items-center justify-center mr-3">
                       <Feather name="file-text" size={18} color="#6b8cff" />
                     </View>
                     <View className="flex-1">
-                      <Text className="text-white text-xs font-semibold" numberOfLines={1}>
+                      <Text
+                        className={`text-xs font-semibold ${
+                          isLight ? "text-neutral-900" : "text-white"
+                        }`}
+                        numberOfLines={1}
+                      >
                         {selectedFile.name}
                       </Text>
-                      <Text className="text-[#6b6b80] text-[10px] mt-0.5">
+                      <Text
+                        className={`text-[10px] mt-0.5 ${
+                          isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                        }`}
+                      >
                         {selectedFile.size} • Pronto para pipeline agêntico em LaTeX
                       </Text>
                     </View>
                   </View>
                   <TouchableOpacity
-                    className="p-2 rounded-lg bg-white/[0.05] active:bg-white/[0.1]"
+                    className={`p-2 rounded-lg active:scale-95 ${
+                      isLight ? "bg-neutral-100 hover:bg-neutral-200" : "bg-white/[0.05] active:bg-white/[0.1]"
+                    }`}
                     onPress={() => setSelectedFile(null)}
                   >
                     <Feather name="trash-2" size={13} color="#e05a6a" />
@@ -425,63 +509,250 @@ export default function Index() {
                 </View>
               ) : (
                 <TouchableOpacity
-                  className={styles.dropzone}
+                  className={`w-full rounded-2xl border-2 border-dashed p-8 items-center justify-center mb-4 transition-all duration-200 cursor-pointer ${
+                    isLight
+                      ? "bg-white border-neutral-300 hover:border-blue-400 hover:bg-blue-50/40"
+                      : styles.dropzone
+                  }`}
                   onPress={handlePickDocument}
                 >
-                  <View className={styles.dropzoneIconBox}>
+                  <View
+                    className={`w-11 h-11 rounded-xl items-center justify-center mb-3 ${
+                      isLight ? "bg-blue-50" : styles.dropzoneIconBox
+                    }`}
+                  >
                     <Feather name="upload" size={18} color="#6b8cff" />
                   </View>
-                  <Text className={styles.dropzoneText}>Clique para selecionar um documento (PDF, Imagem, .tex)</Text>
-                  <Text className={styles.dropzoneSubtext}>A IA executará o pipeline multietapas de reconstrução em LaTeX</Text>
+                  <Text
+                    className={`font-medium text-xs text-center ${
+                      isLight ? "text-neutral-700" : styles.dropzoneText
+                    }`}
+                  >
+                    Clique para selecionar um documento (PDF, Imagem, .tex)
+                  </Text>
+                  <Text
+                    className={`text-[10px] mt-0.5 text-center ${
+                      isLight ? "text-neutral-500" : styles.dropzoneSubtext
+                    }`}
+                  >
+                    A IA executará o pipeline multietapas de reconstrução em LaTeX
+                  </Text>
                 </TouchableOpacity>
               )}
 
               {/* BOTÕES DE EXEMPLO RÁPIDO */}
-              <Text className="text-[10px] uppercase tracking-widest text-[#6b6b80] mb-2 font-medium">
+              <Text
+                className={`text-[10px] uppercase tracking-widest mb-2 font-medium ${
+                  isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                }`}
+              >
                 Ou teste com um dos exemplos acadêmicos prontos:
               </Text>
               <View className={styles.sampleButtonsRow}>
                 {SAMPLE_DOCS.map((s, idx) => (
                   <TouchableOpacity
                     key={idx}
-                    className={styles.sampleBtn}
+                    className={`px-3 py-1.5 rounded-lg border active:scale-95 transition-all ${
+                      isLight
+                        ? "bg-white border-neutral-200 hover:bg-neutral-100"
+                        : styles.sampleBtn
+                    }`}
                     onPress={() => loadSample(s)}
                   >
-                    <Text className={styles.sampleBtnText}>{s.title}</Text>
+                    <Text
+                      className={`text-[11px] ${
+                        isLight ? "text-neutral-700" : styles.sampleBtnText
+                      }`}
+                    >
+                      {s.title}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              {/* FEED DE PROGRESSO AGÊNTICO EM TEMPO REAL */}
+              {/* CONSOLE VISUAL DE PIPELINE AGÊNTICO EM TEMPO REAL */}
               {isTranslating && pipelineProgress && (
-                <View className="w-full bg-[#13131c] border border-[#6b8cff]/30 rounded-2xl p-4 mb-4 animate-smooth-fade flex-row items-center gap-3 shadow-lg">
-                  <ActivityIndicator size="small" color="#6b8cff" />
-                  <View className="flex-1">
-                    <View className="flex-row items-center justify-between mb-1">
-                      <Text className="text-white text-xs font-semibold">
-                        Etapa {pipelineProgress.step}/4: {pipelineProgress.stepName}
-                      </Text>
-                      <Text className="text-[#6b8cff] text-[10px] font-mono font-medium">
-                        {pipelineProgress.step * 25}%
+                <View
+                  className={`w-full rounded-2xl p-5 mb-5 animate-smooth-fade shadow-xl border ${
+                    isLight
+                      ? "bg-white border-blue-200 shadow-blue-500/5"
+                      : "bg-[#13131c] border-[#6b8cff]/30 shadow-black/60"
+                  }`}
+                >
+                  {/* Top: Título do Pipeline e Status */}
+                  <View className="flex-row items-center justify-between pb-3 mb-3.5 border-b border-white/[0.07]">
+                    <View className="flex-row items-center gap-2">
+                      <View className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <Text
+                        className={`text-xs font-bold uppercase tracking-wider ${
+                          isLight ? "text-blue-900" : "text-[#6b8cff]"
+                        }`}
+                      >
+                        Pipeline Agêntico Multimodal Ativo
                       </Text>
                     </View>
-                    <Text className="text-[#a0a0b8] text-[11px] leading-relaxed">
+                    <View className="flex-row items-center gap-1.5 bg-[#6b8cff]/15 px-2.5 py-1 rounded-full border border-[#6b8cff]/30">
+                      <ActivityIndicator size="small" color="#6b8cff" />
+                      <Text className="text-[#6b8cff] text-[10px] font-mono font-bold">
+                        Etapa {pipelineProgress.step} de 4 ({pipelineProgress.step * 25}%)
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* 4-Node Visual Stepper (Agente 1 a 4) */}
+                  <View className="flex-row items-center justify-between mb-4 px-1">
+                    {[
+                      { num: 1, label: "Estrutura", icon: "layers" },
+                      { num: 2, label: "Termos", icon: "book" },
+                      { num: 3, label: "Tradução", icon: "globe" },
+                      { num: 4, label: "Auditoria", icon: "shield" },
+                    ].map((st, idx) => {
+                      const isPast = pipelineProgress.step > st.num;
+                      const isCurrent = pipelineProgress.step === st.num;
+                      return (
+                        <React.Fragment key={st.num}>
+                          <View className="items-center flex-1">
+                            <View
+                              className={`w-8 h-8 rounded-full items-center justify-center transition-all ${
+                                isPast
+                                  ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/20"
+                                  : isCurrent
+                                  ? "bg-[#6b8cff] shadow-lg shadow-[#6b8cff]/40 scale-110 ring-2 ring-[#6b8cff]/50"
+                                  : isLight
+                                  ? "bg-neutral-100 border border-neutral-300"
+                                  : "bg-white/[0.05] border border-white/[0.08]"
+                              }`}
+                            >
+                              {isPast ? (
+                                <Feather name="check" size={13} color="#ffffff" />
+                              ) : isCurrent ? (
+                                <ActivityIndicator size="small" color="#ffffff" />
+                              ) : (
+                                <Feather
+                                  name={st.icon as any}
+                                  size={11}
+                                  color={isLight ? "#9ca3af" : "#6b6b80"}
+                                />
+                              )}
+                            </View>
+                            <Text
+                              className={`text-[9px] font-medium mt-1.5 ${
+                                isCurrent
+                                  ? isLight
+                                    ? "text-blue-900 font-bold"
+                                    : "text-white font-bold"
+                                  : isPast
+                                  ? "text-emerald-500"
+                                  : isLight
+                                  ? "text-neutral-400"
+                                  : "text-[#6b6b80]"
+                              }`}
+                            >
+                              {st.label}
+                            </Text>
+                          </View>
+                          {idx < 3 && (
+                            <View
+                              className={`h-0.5 flex-1 mb-4 transition-all ${
+                                pipelineProgress.step > idx + 1
+                                  ? "bg-emerald-500"
+                                  : isLight
+                                  ? "bg-neutral-200"
+                                  : "bg-white/[0.08]"
+                              }`}
+                            />
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </View>
+
+                  {/* Detalhe do Agente Atual em Ação */}
+                  <View
+                    className={`rounded-xl p-3.5 mb-3 border ${
+                      isLight
+                        ? "bg-blue-50/70 border-blue-100"
+                        : "bg-white/[0.03] border-white/[0.06]"
+                    }`}
+                  >
+                    <View className="flex-row items-center gap-1.5 mb-1">
+                      <Feather name="cpu" size={12} color="#6b8cff" />
+                      <Text className="text-[#6b8cff] text-[11px] font-bold">
+                        {pipelineProgress.agentRole || "Agente Especialista"}
+                      </Text>
+                    </View>
+                    <Text
+                      className={`text-xs leading-relaxed font-medium ${
+                        isLight ? "text-neutral-800" : "text-[#e8e8f0]"
+                      }`}
+                    >
                       {pipelineProgress.detail}
                     </Text>
+
+                    {/* Live Activity Logs */}
+                    {pipelineProgress.liveLogs && pipelineProgress.liveLogs.length > 0 && (
+                      <View className="mt-2.5 pt-2 border-t border-white/[0.06] flex-col gap-1">
+                        {pipelineProgress.liveLogs.map((log, lIdx) => (
+                          <View key={lIdx} className="flex-row items-center gap-1.5">
+                            <Text className="text-[#6b8cff] text-[10px] font-mono">›</Text>
+                            <Text
+                              className={`text-[10px] ${
+                                isLight ? "text-neutral-600" : "text-[#a0a0b8]"
+                              }`}
+                            >
+                              {log}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
                   </View>
+
+                  {/* Termos Técnicos Identificados ao Vivo (Chips) */}
+                  {pipelineProgress.discoveredTerms && pipelineProgress.discoveredTerms.length > 0 && (
+                    <View className="mt-1 animate-smooth-fade">
+                      <Text
+                        className={`text-[9px] uppercase tracking-wider font-bold mb-1.5 ${
+                          isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                        }`}
+                      >
+                        Termos Técnicos Identificados para o Copiloto:
+                      </Text>
+                      <View className="flex-row flex-wrap gap-1.5">
+                        {pipelineProgress.discoveredTerms.slice(0, 8).map((term, tIdx) => (
+                          <View
+                            key={tIdx}
+                            className="bg-[#6b8cff]/15 border border-[#6b8cff]/30 px-2.5 py-0.5 rounded-full"
+                          >
+                            <Text className="text-[#6b8cff] text-[10px] font-mono font-medium">
+                              "{term}"
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
 
               {/* CAIXA DE TEXTO / PROMPT / INSTRUÇÕES */}
-              <View className={styles.promptBox}>
+              <View
+                className={`w-full rounded-2xl overflow-hidden mb-4 shadow-sm transition-all border ${
+                  isLight
+                    ? "bg-white border-neutral-200 hover:border-neutral-300"
+                    : styles.promptBox
+                }`}
+              >
                 <TextInput
-                  className={styles.promptInput}
+                  className={`w-full px-4 pt-3.5 pb-2 text-xs min-h-[90px] max-h-[160px] ${
+                    isLight ? "text-neutral-900" : "text-[#e8e8f0]"
+                  }`}
                   placeholder={
                     selectedFile
                       ? "Instruções adicionais para a IA (ex: 'Converta tabelas para longtable', 'Tom estritamente acadêmico')..."
                       : "Ou digite/cole seu texto técnico ou LaTeX aqui..."
                   }
-                  placeholderTextColor="#6b6b80"
+                  placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
                   value={selectedFile ? promptInstructions : inputText}
                   onChangeText={(val) => {
                     if (selectedFile) setPromptInstructions(val);
@@ -490,8 +761,16 @@ export default function Index() {
                   multiline
                   textAlignVertical="top"
                 />
-                <View className={styles.promptFooter}>
-                  <Text className={styles.promptLabel}>
+                <View
+                  className={`flex-row items-center justify-between px-4 py-2.5 border-t ${
+                    isLight ? "border-neutral-100 bg-neutral-50/50" : "border-white/[0.05]"
+                  }`}
+                >
+                  <Text
+                    className={`text-[10px] uppercase tracking-widest font-medium ${
+                      isLight ? "text-neutral-400" : "text-[#6b6b80]"
+                    }`}
+                  >
                     {selectedFile ? "Pipeline Agêntico Multimodal" : "Pipeline Agêntico Texto / LaTeX"}
                   </Text>
                   <TouchableOpacity
@@ -517,13 +796,25 @@ export default function Index() {
           <View className="flex-1 flex-col">
             {/* FLOATING PILL TAB BAR */}
             <View className={styles.tabHeaderContainer}>
-              <View className={styles.floatingTabBar}>
+              <View
+                className={`flex-row items-center rounded-full p-1 shadow-lg transition-all duration-300 border ${
+                  isLight
+                    ? "bg-white border-neutral-200 shadow-neutral-300/40"
+                    : "bg-[#13131c] border-white/[0.08] shadow-black/50"
+                }`}
+              >
                 <TouchableOpacity
                   className={docTab === "translated" ? styles.pillTabActive : styles.pillTab}
                   onPress={() => setDocTab("translated")}
                 >
                   <Text
-                    className={docTab === "translated" ? styles.pillTabTextActive : styles.pillTabText}
+                    className={
+                      docTab === "translated"
+                        ? styles.pillTabTextActive
+                        : isLight
+                        ? "text-neutral-600 text-xs font-medium"
+                        : styles.pillTabText
+                    }
                   >
                     Arquivo Traduzido
                   </Text>
@@ -536,7 +827,7 @@ export default function Index() {
                   <Feather
                     name="columns"
                     size={13}
-                    color={docTab === "split" ? "#ffffff" : "#6b6b80"}
+                    color={docTab === "split" ? "#ffffff" : isLight ? "#6b7280" : "#6b6b80"}
                   />
                 </TouchableOpacity>
 
@@ -545,7 +836,13 @@ export default function Index() {
                   onPress={() => setDocTab("original")}
                 >
                   <Text
-                    className={docTab === "original" ? styles.pillTabTextActive : styles.pillTabText}
+                    className={
+                      docTab === "original"
+                        ? styles.pillTabTextActive
+                        : isLight
+                        ? "text-neutral-600 text-xs font-medium"
+                        : styles.pillTabText
+                    }
                   >
                     Arquivo Original
                   </Text>
@@ -553,7 +850,7 @@ export default function Index() {
               </View>
             </View>
 
-            {/* PAINÉIS DE DOCUMENTO COM RENDERIZADOR LATEX (EXPANSÃO E COLAPSO HORIZONTAL CONTÍNUO) */}
+            {/* PAINÉIS DE DOCUMENTO COM RENDERIZADOR LATEX */}
             <View
               className={`flex-1 flex-row gap-3 px-4 pb-4 overflow-hidden min-h-0 transition-all duration-300 ${
                 isSwitchingDoc ? "opacity-25 scale-[0.99]" : "opacity-100 scale-100"
@@ -561,7 +858,9 @@ export default function Index() {
             >
               {/* PAINEL TRADUZIDO */}
               <View
-                className={`rounded-xl bg-[#13131c] border border-white/[0.07] overflow-hidden flex-col h-full transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                className={`rounded-xl border overflow-hidden flex-col h-full transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                  isLight ? "bg-white border-neutral-200 shadow-sm" : "bg-[#13131c] border-white/[0.07]"
+                } ${
                   docTab === "translated"
                     ? "flex-1 p-5 opacity-100 scale-100 translate-x-0"
                     : docTab === "split"
@@ -576,12 +875,15 @@ export default function Index() {
                   latexCode={translatedFullText}
                   langTitle={`LaTeX Traduzido — ${getTargetLangName()}`}
                   isAccent={true}
+                  theme={theme}
                 />
               </View>
 
               {/* PAINEL ORIGINAL */}
               <View
-                className={`rounded-xl bg-[#13131c] border border-white/[0.07] overflow-hidden flex-col h-full transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                className={`rounded-xl border overflow-hidden flex-col h-full transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                  isLight ? "bg-white border-neutral-200 shadow-sm" : "bg-[#13131c] border-white/[0.07]"
+                } ${
                   docTab === "original"
                     ? "flex-1 p-5 opacity-100 scale-100 translate-x-0"
                     : docTab === "split"
@@ -596,6 +898,7 @@ export default function Index() {
                   latexCode={originalFullText}
                   langTitle={`Original — ${getSourceLangName()}`}
                   isAccent={false}
+                  theme={theme}
                 />
               </View>
             </View>
@@ -607,13 +910,17 @@ export default function Index() {
       {viewMode === "reading" && (
         <View className="justify-center z-20">
           <TouchableOpacity
-            className={styles.sideToggleBtnRight}
+            className={
+              isLight
+                ? "w-5 h-12 bg-white border border-neutral-300 border-r-0 rounded-l-xl items-center justify-center cursor-pointer hover:bg-neutral-100 active:scale-95 transition-all shadow-sm"
+                : styles.sideToggleBtnRight
+            }
             onPress={() => setRightOpen(!rightOpen)}
           >
             <Feather
               name={rightOpen ? "chevron-right" : "chevron-left"}
               size={12}
-              color="#6b6b80"
+              color={isLight ? "#4b5563" : "#6b6b80"}
             />
           </TouchableOpacity>
         </View>
@@ -625,6 +932,7 @@ export default function Index() {
         currentOriginal={originalFullText}
         currentTranslated={translatedFullText}
         identifiedTerms={identifiedTerms}
+        theme={theme}
         onOpenGlossary={() => setShowGlossaryModal(true)}
         onApplyAdjustment={(newText) => setTranslatedFullText(newText)}
         onApplyTermDecision={handleApplyTermDecision}
@@ -638,52 +946,119 @@ export default function Index() {
         onRequestClose={() => setShowGlossaryModal(false)}
       >
         <View className={styles.modalOverlay}>
-          <View className={styles.modalCard}>
-            <View className={styles.modalHeader}>
+          <View
+            className={`w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl animate-smooth-pop border ${
+              isLight ? "bg-white border-neutral-200" : "bg-[#13131c] border-white/10"
+            }`}
+          >
+            <View
+              className={`flex-row items-center justify-between px-6 py-4 border-b ${
+                isLight ? "border-neutral-200" : "border-white/[0.07]"
+              }`}
+            >
               <View className="flex-row items-center gap-2">
                 <Feather name="book-open" size={14} color="#6b8cff" />
-                <Text className={styles.modalTitle}>Glossário do Projeto</Text>
+                <Text
+                  className={`font-semibold text-sm ${
+                    isLight ? "text-neutral-900" : "text-[#e8e8f0]"
+                  }`}
+                >
+                  Glossário do Projeto
+                </Text>
               </View>
               <TouchableOpacity onPress={() => setShowGlossaryModal(false)}>
-                <Feather name="x" size={14} color="#6b6b80" />
+                <Feather name="x" size={14} color={isLight ? "#9ca3af" : "#6b6b80"} />
               </TouchableOpacity>
             </View>
 
             <ScrollView className={styles.modalBody}>
-              <View className={styles.glossaryTableHead}>
-                <Text className={styles.glossaryHeadText}>Termo Original</Text>
-                <Text className={styles.glossaryHeadText}>Tradução Forçada</Text>
+              <View
+                className={`flex-row justify-between pb-2 mb-2 border-b ${
+                  isLight ? "border-neutral-200" : "border-white/[0.07]"
+                }`}
+              >
+                <Text
+                  className={`text-[10px] uppercase tracking-widest font-medium ${
+                    isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                  }`}
+                >
+                  Termo Original
+                </Text>
+                <Text
+                  className={`text-[10px] uppercase tracking-widest font-medium ${
+                    isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                  }`}
+                >
+                  Tradução Forçada
+                </Text>
               </View>
 
               {glossary.length === 0 ? (
-                <Text className="text-[#6b6b80] text-xs py-6 text-center italic">
+                <Text
+                  className={`text-xs py-6 text-center italic ${
+                    isLight ? "text-neutral-400" : "text-[#6b6b80]"
+                  }`}
+                >
                   Nenhum termo personalizado no glossário.
                 </Text>
               ) : (
                 glossary.map((g) => (
-                  <View key={g.id} className={styles.glossaryRow}>
-                    <Text className={styles.glossaryOriginalText}>{g.original}</Text>
-                    <Text className={styles.glossaryTranslatedText}>{g.translation}</Text>
+                  <View
+                    key={g.id}
+                    className={`flex-row items-center justify-between py-2.5 border-b transition-colors ${
+                      isLight
+                        ? "border-neutral-100 hover:bg-neutral-50"
+                        : "border-white/[0.04] hover:bg-white/[0.02]"
+                    }`}
+                  >
+                    <Text
+                      className={`text-xs font-mono flex-1 ${
+                        isLight ? "text-neutral-800" : "text-[#c8c8d8]"
+                      }`}
+                    >
+                      {g.original}
+                    </Text>
+                    <Text
+                      className={`text-xs flex-1 ml-2 ${
+                        isLight ? "text-neutral-600" : "text-white/70"
+                      }`}
+                    >
+                      {g.translation}
+                    </Text>
                     <TouchableOpacity onPress={() => handleDeleteTerm(g.id)}>
-                      <Text className={styles.glossaryDeleteBtn}>Excluir</Text>
+                      <Text className="px-2 py-1 rounded text-red-500 text-xs hover:bg-red-500/10 active:scale-95 transition-all">
+                        Excluir
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 ))
               )}
 
               {/* Adicionar Novo Termo */}
-              <View className={styles.glossaryAddRow}>
+              <View
+                className={`flex-row gap-2 mt-4 pt-3 border-t ${
+                  isLight ? "border-neutral-200" : "border-white/[0.07]"
+                }`}
+              >
                 <TextInput
-                  className={styles.glossaryInput}
+                  className={`flex-1 rounded-lg px-3 py-2 text-xs border ${
+                    isLight
+                      ? "bg-neutral-50 border-neutral-200 text-neutral-900"
+                      : "bg-white/[0.05] border-white/[0.08] text-white"
+                  }`}
                   placeholder="Original (ex: Neural Network)"
-                  placeholderTextColor="#6b6b80"
+                  placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
                   value={newOriginalTerm}
                   onChangeText={setNewOriginalTerm}
                 />
                 <TextInput
-                  className={styles.glossaryInput}
+                  className={`flex-1 rounded-lg px-3 py-2 text-xs border ${
+                    isLight
+                      ? "bg-neutral-50 border-neutral-200 text-neutral-900"
+                      : "bg-white/[0.05] border-white/[0.08] text-white"
+                  }`}
                   placeholder="Tradução (ex: Rede Neural)"
-                  placeholderTextColor="#6b6b80"
+                  placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
                   value={newTranslatedTerm}
                   onChangeText={setNewTranslatedTerm}
                 />
@@ -704,13 +1079,25 @@ export default function Index() {
         onRequestClose={() => setShowLangModal(null)}
       >
         <View className={styles.modalOverlay}>
-          <View className={styles.langModalCard}>
-            <View className="flex-row items-center justify-between pb-3 mb-3 border-b border-white/[0.07]">
-              <Text className="text-[#e8e8f0] font-semibold text-sm">
+          <View
+            className={`w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-5 border ${
+              isLight ? "bg-white border-neutral-200" : "bg-[#13131c] border-white/10"
+            }`}
+          >
+            <View
+              className={`flex-row items-center justify-between pb-3 mb-3 border-b ${
+                isLight ? "border-neutral-200" : "border-white/[0.07]"
+              }`}
+            >
+              <Text
+                className={`font-semibold text-sm ${
+                  isLight ? "text-neutral-900" : "text-[#e8e8f0]"
+                }`}
+              >
                 {showLangModal === "source" ? "Selecionar Idioma de Origem" : "Selecionar Idioma de Destino"}
               </Text>
               <TouchableOpacity onPress={() => setShowLangModal(null)}>
-                <Feather name="x" size={14} color="#6b6b80" />
+                <Feather name="x" size={14} color={isLight ? "#9ca3af" : "#6b6b80"} />
               </TouchableOpacity>
             </View>
 
@@ -725,14 +1112,24 @@ export default function Index() {
                 return (
                   <TouchableOpacity
                     key={lang.code}
-                    className={styles.langOption}
+                    className={`flex-row items-center justify-between p-3 rounded-lg mb-1 active:scale-[0.98] transition-all ${
+                      isLight ? "hover:bg-neutral-100" : "hover:bg-white/[0.06]"
+                    }`}
                     onPress={() => {
                       if (showLangModal === "source") setSourceLang(lang.code);
                       else setTargetLang(lang.code);
                       setShowLangModal(null);
                     }}
                   >
-                    <Text className={isActive ? styles.langOptionActiveText : styles.langOptionText}>
+                    <Text
+                      className={
+                        isActive
+                          ? styles.langOptionActiveText
+                          : isLight
+                          ? "text-neutral-800 text-xs font-medium"
+                          : styles.langOptionText
+                      }
+                    >
                       {lang.name}
                     </Text>
                     {isActive && <Feather name="check" size={12} color="#6b8cff" />}

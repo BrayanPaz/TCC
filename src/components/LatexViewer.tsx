@@ -7,17 +7,20 @@ interface LatexViewerProps {
   latexCode: string;
   langTitle: string;
   isAccent?: boolean;
+  theme?: "dark" | "light";
 }
 
 /**
- * Renderizador Completo de Documentos e Fórmulas LaTeX com KaTeX e Tipografia Científica
+ * Renderizador Acadêmico Completo de Documentos LaTeX com KaTeX e Suporte a Temas Claro e Escuro
  */
 export default function LatexViewer({
   latexCode,
   langTitle,
   isAccent = false,
+  theme = "dark",
 }: LatexViewerProps) {
-  const [viewMode, setViewMode] = useState<"rendered" | "code">("rendered");
+  const isLight = theme === "light";
+  const [viewMode, setViewMode] = useState<"page-light" | "page-dark" | "code">("page-light");
   const [copied, setCopied] = useState(false);
 
   // Copiar código para a área de transferência
@@ -29,14 +32,14 @@ export default function LatexViewer({
     }
   };
 
-  // Download do arquivo .tex
+  // Download do arquivo .tex puro
   const handleDownloadTex = () => {
     if (typeof document !== "undefined") {
       const blob = new Blob([latexCode], { type: "text/plain;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `documento_traduzido.tex`;
+      link.download = `${langTitle.toLowerCase().replace(/[^a-z0-9]/g, "_")}.tex`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -44,7 +47,7 @@ export default function LatexViewer({
     }
   };
 
-  // Impressão / Exportação em PDF
+  // Impressão / Exportação direta em PDF Vetorial
   const handlePrintPDF = () => {
     if (typeof window !== "undefined") {
       const printWindow = window.open("", "_blank");
@@ -57,36 +60,51 @@ export default function LatexViewer({
           <title>${langTitle}</title>
           <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
           <style>
-            @page { margin: 2cm; size: A4; }
+            @page { margin: 20mm 18mm; size: A4 portrait; }
             body {
               font-family: 'Latin Modern Roman', 'Times New Roman', Times, serif;
-              padding: 20px 40px;
-              color: #111;
-              line-height: 1.6;
-              font-size: 11pt;
-              max-width: 820px;
+              padding: 0;
               margin: 0 auto;
+              color: #111;
+              line-height: 1.65;
+              font-size: 11pt;
+              max-width: 780px;
               background: #fff;
             }
-            h1 { font-size: 17pt; text-align: center; margin: 24px 0 16px 0; font-weight: bold; }
-            h2 { font-size: 13pt; margin: 20px 0 10px 0; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-            h3 { font-size: 11.5pt; margin: 16px 0 8px 0; font-weight: bold; color: #222; }
-            p { text-align: justify; margin-bottom: 12px; text-indent: 1.5em; }
-            p:first-of-type { text-indent: 0; }
-            .math-display { text-align: center; margin: 18px 0; overflow-x: auto; padding: 6px 0; }
-            ul, ol { margin: 10px 0 14px 24px; padding: 0; }
-            li { margin-bottom: 6px; }
-            table { border-collapse: collapse; margin: 16px auto; width: 90%; }
-            th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
-            th { background: #f5f5f5; font-weight: bold; }
-            .katex { font-size: 1.05em; }
-            @media print {
-              body { padding: 0; }
+            .page-container { padding: 10px 0; }
+            .doc-header {
+              border-bottom: 2px solid #333;
+              padding-bottom: 8px;
+              margin-bottom: 24px;
+              display: flex;
+              justify-content: space-between;
+              font-size: 9pt;
+              color: #555;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
             }
+            h1 { font-size: 16pt; text-align: center; margin: 20px 0 16px 0; font-weight: bold; line-height: 1.3; }
+            h2 { font-size: 12.5pt; margin: 22px 0 10px 0; font-weight: bold; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+            h3 { font-size: 11pt; margin: 16px 0 8px 0; font-weight: bold; color: #222; }
+            p { text-align: justify; margin-bottom: 12px; text-indent: 1.8em; }
+            .math-display { text-align: center; margin: 18px 0; padding: 10px 0; overflow-x: auto; }
+            .katex-display { margin: 0 !important; }
+            ul, ol { margin: 10px 0 14px 28px; padding: 0; }
+            li { margin-bottom: 6px; }
+            table { border-collapse: collapse; margin: 18px auto; width: 95%; font-size: 10pt; }
+            th, td { border: 1px solid #bbb; padding: 8px 12px; text-align: left; }
+            th { background: #f2f2f2; font-weight: bold; }
+            @media print { body { max-width: 100%; } }
           </style>
         </head>
         <body>
-          ${convertFullLatexToHtml(latexCode, false)}
+          <div class="page-container">
+            <div class="doc-header">
+              <span>Translatio • Documento Científico</span>
+              <span>${langTitle}</span>
+            </div>
+            ${convertLatexToAcademicPaperHtml(latexCode, false)}
+          </div>
         </body>
         </html>
       `;
@@ -99,25 +117,34 @@ export default function LatexViewer({
     }
   };
 
-  // Converte o LaTeX para HTML formatado com KaTeX para visualização em tela escura
-  const renderedHtml = useMemo(() => {
-    return convertFullLatexToHtml(latexCode, true);
-  }, [latexCode]);
+  // Converte o LaTeX para visualização em página A4 formatada
+  const renderedPaperHtml = useMemo(() => {
+    const isDark = viewMode === "page-dark";
+    return convertLatexToAcademicPaperHtml(latexCode, isDark);
+  }, [latexCode, viewMode]);
 
   return (
     <View className="flex-1 flex-col h-full overflow-hidden">
-      {/* Barra Superior com wrap responsivo sem transbordar */}
-      <View className="flex-row flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-white/[0.07] flex-shrink-0">
-        {/* Título do Documento com truncate */}
+      {/* Barra Superior com Controles Responsivos */}
+      <View
+        className={`flex-row flex-wrap items-center justify-between gap-2 pb-3 mb-2 border-b flex-shrink-0 ${
+          isLight ? "border-neutral-200" : "border-white/[0.07]"
+        }`}
+      >
+        {/* Título do Documento */}
         <View className="flex-row items-center flex-1 min-w-[140px]">
           <Feather
             name="file-text"
             size={12}
-            color={isAccent ? "#6b8cff" : "#6b6b80"}
+            color={isAccent ? "#6b8cff" : isLight ? "#6b7280" : "#6b6b80"}
           />
           <Text
             className={`text-[10px] font-medium uppercase tracking-wider ml-1.5 truncate ${
-              isAccent ? "text-[#6b8cff]" : "text-[#6b6b80]"
+              isAccent
+                ? "text-[#6b8cff] font-bold"
+                : isLight
+                ? "text-neutral-700 font-semibold"
+                : "text-[#6b6b80]"
             }`}
             numberOfLines={1}
           >
@@ -125,34 +152,91 @@ export default function LatexViewer({
           </Text>
         </View>
 
-        {/* Ações Compactas com micro-animações */}
+        {/* Ações de Modo de Página e Download */}
         <View className="flex-row items-center gap-1.5 flex-shrink-0">
-          {/* Alternar Visualização */}
-          <View className="flex-row bg-white/[0.05] rounded-lg p-0.5 border border-white/[0.06] transition-all duration-200">
+          {/* Seletor de Modo: Página A4 (Clara) | Página Escura | Código .tex */}
+          <View
+            className={`flex-row rounded-lg p-0.5 border transition-all ${
+              isLight ? "bg-neutral-100 border-neutral-200" : "bg-white/[0.05] border-white/[0.06]"
+            }`}
+          >
             <TouchableOpacity
-              className={`px-2.5 py-1 rounded-md active:scale-95 transition-all duration-200 ${
-                viewMode === "rendered" ? "bg-[#6b8cff] shadow-sm shadow-[#6b8cff]/30" : "bg-transparent hover:bg-white/[0.04]"
+              className={`px-2.5 py-1 rounded-md flex-row items-center gap-1 active:scale-95 transition-all ${
+                viewMode === "page-light"
+                  ? isLight
+                    ? "bg-white shadow-sm border border-neutral-200"
+                    : "bg-white shadow-sm"
+                  : "bg-transparent"
               }`}
-              onPress={() => setViewMode("rendered")}
+              onPress={() => setViewMode("page-light")}
+              title="Página A4 (Estilo PDF)"
             >
+              <Feather
+                name="file"
+                size={10}
+                color={viewMode === "page-light" ? "#111111" : isLight ? "#9ca3af" : "#6b6b80"}
+              />
               <Text
                 className={`text-[9px] font-medium ${
-                  viewMode === "rendered" ? "text-white" : "text-[#6b6b80]"
+                  viewMode === "page-light"
+                    ? "text-neutral-900 font-bold"
+                    : isLight
+                    ? "text-neutral-500"
+                    : "text-[#6b6b80]"
                 }`}
               >
-                Formatado
+                Página PDF
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              className={`px-2.5 py-1 rounded-md active:scale-95 transition-all duration-200 ${
-                viewMode === "code" ? "bg-[#6b8cff] shadow-sm shadow-[#6b8cff]/30" : "bg-transparent hover:bg-white/[0.04]"
+              className={`px-2 py-1 rounded-md flex-row items-center gap-1 active:scale-95 transition-all ${
+                viewMode === "page-dark"
+                  ? "bg-[#6b8cff] shadow-sm shadow-[#6b8cff]/30"
+                  : "bg-transparent"
               }`}
-              onPress={() => setViewMode("code")}
+              onPress={() => setViewMode("page-dark")}
+              title="Modo Escuro Integrado"
             >
+              <Feather
+                name="moon"
+                size={10}
+                color={viewMode === "page-dark" ? "#ffffff" : isLight ? "#9ca3af" : "#6b6b80"}
+              />
               <Text
                 className={`text-[9px] font-medium ${
-                  viewMode === "code" ? "text-white" : "text-[#6b6b80]"
+                  viewMode === "page-dark"
+                    ? "text-white font-bold"
+                    : isLight
+                    ? "text-neutral-500"
+                    : "text-[#6b6b80]"
+                }`}
+              >
+                Dark
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              className={`px-2 py-1 rounded-md flex-row items-center gap-1 active:scale-95 transition-all ${
+                viewMode === "code"
+                  ? "bg-[#6b8cff] shadow-sm shadow-[#6b8cff]/30"
+                  : "bg-transparent"
+              }`}
+              onPress={() => setViewMode("code")}
+              title="Código Fonte LaTeX"
+            >
+              <Feather
+                name="code"
+                size={10}
+                color={viewMode === "code" ? "#ffffff" : isLight ? "#9ca3af" : "#6b6b80"}
+              />
+              <Text
+                className={`text-[9px] font-medium ${
+                  viewMode === "code"
+                    ? "text-white font-bold"
+                    : isLight
+                    ? "text-neutral-500"
+                    : "text-[#6b6b80]"
                 }`}
               >
                 .tex
@@ -162,62 +246,164 @@ export default function LatexViewer({
 
           {/* Botão Copiar */}
           <TouchableOpacity
-            className="p-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] active:scale-90 transition-all duration-150"
+            className={`p-1.5 rounded-lg border active:scale-90 transition-all ${
+              isLight
+                ? "bg-white border-neutral-200 hover:bg-neutral-100"
+                : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08]"
+            }`}
             onPress={handleCopy}
-            title="Copiar Código"
+            title="Copiar Código .tex"
           >
             <Feather
               name={copied ? "check" : "copy"}
               size={11}
-              color={copied ? "#4ade80" : "#a0a0b8"}
+              color={copied ? "#10b981" : isLight ? "#6b7280" : "#a0a0b8"}
             />
           </TouchableOpacity>
 
           {/* Botão Baixar .tex */}
           <TouchableOpacity
-            className="flex-row items-center px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] active:scale-90 transition-all duration-150"
+            className={`flex-row items-center px-2 py-1.5 rounded-lg border active:scale-90 transition-all ${
+              isLight
+                ? "bg-white border-neutral-200 hover:bg-neutral-100"
+                : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08]"
+            }`}
             onPress={handleDownloadTex}
+            title="Baixar arquivo .tex compilável"
           >
-            <Feather name="download" size={10} color="#a0a0b8" />
-            <Text className="text-[#a0a0b8] text-[9px] font-medium ml-1">.tex</Text>
+            <Feather name="download" size={10} color={isLight ? "#6b7280" : "#a0a0b8"} />
+            <Text
+              className={`text-[9px] font-medium ml-1 ${
+                isLight ? "text-neutral-700" : "text-[#a0a0b8]"
+              }`}
+            >
+              .tex
+            </Text>
           </TouchableOpacity>
 
-          {/* Botão PDF / Imprimir */}
+          {/* Botão Exportar PDF */}
           <TouchableOpacity
-            className="flex-row items-center px-2 py-1.5 rounded-lg bg-[#6b8cff]/15 border border-[#6b8cff]/30 hover:bg-[#6b8cff]/25 active:scale-90 transition-all duration-150"
+            className="flex-row items-center px-2.5 py-1.5 rounded-lg bg-[#6b8cff]/15 border border-[#6b8cff]/30 hover:bg-[#6b8cff]/25 active:scale-90 transition-all"
             onPress={handlePrintPDF}
+            title="Exportar como PDF Vetorial"
           >
             <Feather name="printer" size={10} color="#6b8cff" />
-            <Text className="text-[#6b8cff] text-[9px] font-medium ml-1">PDF</Text>
+            <Text className="text-[#6b8cff] text-[9px] font-bold ml-1">PDF</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Conteúdo Renderizado com KaTeX ou Código Fonte */}
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        {viewMode === "rendered" ? (
-          Platform.OS === "web" ? (
-            <div
-              className="latex-rendered-document animate-smooth-fade"
-              style={{
-                fontFamily: "system-ui, -apple-system, sans-serif",
-                color: "#d0d0e0",
-                lineHeight: "1.75",
-                fontSize: "13px",
-                padding: "4px 8px 30px 4px",
-              }}
-              dangerouslySetInnerHTML={{ __html: renderedHtml }}
-            />
-          ) : (
-            <View className="p-3">
-              <Text className="text-[#d0d0e0] font-mono text-xs">{latexCode}</Text>
-            </View>
-          )
-        ) : (
-          <View className="bg-[#0c0c12] p-4 rounded-xl border border-white/[0.07] animate-smooth-fade">
+      {/* Visualizador de Página A4 ou Código Fonte */}
+      <ScrollView
+        className={`flex-1 ${
+          isLight
+            ? "bg-[#eef1f5]"
+            : viewMode === "page-light"
+            ? "bg-[#09090e]"
+            : "bg-[#0c0c12]"
+        } p-2 rounded-xl border ${isLight ? "border-neutral-200" : "border-transparent"}`}
+        showsVerticalScrollIndicator={true}
+      >
+        {viewMode === "code" ? (
+          <View
+            className={`p-5 rounded-xl border animate-smooth-fade ${
+              isLight ? "bg-neutral-900 border-neutral-800" : "bg-[#0c0c12] border-white/[0.07]"
+            }`}
+          >
             <Text className="text-[#c8c8d8] font-mono text-xs leading-relaxed select-text">
               {latexCode}
             </Text>
+          </View>
+        ) : Platform.OS === "web" ? (
+          /* PÁGINA A4 ESTILO PDF */
+          <div
+            className="pdf-page-wrapper animate-smooth-fade"
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              padding: "16px 8px 32px 8px",
+            }}
+          >
+            <div
+              className="a4-paper-sheet"
+              style={{
+                width: "100%",
+                maxWidth: "760px",
+                minHeight: "920px",
+                backgroundColor: viewMode === "page-light" ? "#ffffff" : "#14141e",
+                color: viewMode === "page-light" ? "#1a1a24" : "#e0e0ec",
+                boxShadow:
+                  isLight && viewMode === "page-light"
+                    ? "0 4px 20px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04)"
+                    : viewMode === "page-light"
+                    ? "0 12px 36px -8px rgba(0, 0, 0, 0.65), 0 0 1px rgba(0, 0, 0, 0.2)"
+                    : "0 12px 36px -8px rgba(0, 0, 0, 0.85), 0 0 1px rgba(255, 255, 255, 0.1)",
+                borderRadius: "6px",
+                border:
+                  isLight && viewMode === "page-light"
+                    ? "1px solid #e5e7eb"
+                    : viewMode === "page-light"
+                    ? "1px solid rgba(0,0,0,0.1)"
+                    : "1px solid rgba(255,255,255,0.08)",
+                padding: "48px 54px",
+                boxSizing: "border-box",
+                fontFamily:
+                  "'Latin Modern Roman', 'Computer Modern', 'Times New Roman', Times, Georgia, serif",
+                fontSize: "13px",
+                lineHeight: "1.75",
+              }}
+            >
+              {/* Cabeçalho da Página */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  borderBottom:
+                    viewMode === "page-light"
+                      ? "1px solid #e0e0e0"
+                      : "1px solid rgba(255,255,255,0.08)",
+                  paddingBottom: "8px",
+                  marginBottom: "28px",
+                  fontSize: "9px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.1em",
+                  color: viewMode === "page-light" ? "#777777" : "#777790",
+                  fontFamily: "system-ui, -apple-system, sans-serif",
+                }}
+              >
+                <span>Translatio • Documento Científico</span>
+                <span>{langTitle}</span>
+              </div>
+
+              {/* Conteúdo Renderizado da Página */}
+              <div dangerouslySetInnerHTML={{ __html: renderedPaperHtml }} />
+
+              {/* Rodapé da Página */}
+              <div
+                style={{
+                  marginTop: "48px",
+                  paddingTop: "12px",
+                  borderTop:
+                    viewMode === "page-light"
+                      ? "1px solid #eeeeee"
+                      : "1px solid rgba(255,255,255,0.06)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: "9px",
+                  color: viewMode === "page-light" ? "#888888" : "#6b6b80",
+                  fontFamily: "system-ui, -apple-system, sans-serif",
+                }}
+              >
+                <span>Translatio Academic Engine</span>
+                <span>Página 1</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <View className="p-4 bg-white rounded-lg">
+            <Text className="text-neutral-900 font-serif text-xs">{latexCode}</Text>
           </View>
         )}
       </ScrollView>
@@ -226,103 +412,237 @@ export default function LatexViewer({
 }
 
 /**
- * Converte código LaTeX completo para HTML com KaTeX renderizando fórmulas inline ($...$) e display blocks ($$...$$)
+ * Renderizador Robusto de KaTeX com sanitização de fórmulas multilinha e alinhamento
  */
-function convertFullLatexToHtml(latex: string, isDarkTheme: boolean): string {
-  if (!latex) return "<p class='text-[#6b6b80] italic'>Nenhum conteúdo para exibir.</p>";
+function renderMathSafely(rawFormula: string, isDisplay: boolean): string {
+  try {
+    let clean = rawFormula.trim();
 
-  // Remove preâmbulo puramente técnico do LaTeX para visualização limpa
+    // Remove tags de ambientes matemáticos desnecessárias antes de processar
+    clean = clean
+      .replace(/\\begin\{(equation|align|gather|multline)\*?\}/g, "")
+      .replace(/\\end\{(equation|align|gather|multline)\*?\}/g, "")
+      .trim();
+
+    // Se a fórmula contém alinhamento (& ou \\) e não está dentro de um ambiente alinhado, encapsula em aligned
+    if ((clean.includes("&") || clean.includes("\\\\")) && !clean.includes("\\begin{aligned}")) {
+      clean = `\\begin{aligned} ${clean} \\end{aligned}`;
+    }
+
+    // Corrige comandos comuns mal escapados em LaTeX
+    clean = clean
+      .replace(/\\d\s*\\nu/g, "\\,\\mathrm{d}\\nu")
+      .replace(/\\d([a-zA-Z])/g, "\\,\\mathrm{d}$1")
+      .replace(/\\text\s*\{([^}]+)\}/g, "\\text{$1}")
+      .replace(/\\vartheta/g, "\\vartheta");
+
+    return katex.renderToString(clean, {
+      displayMode: isDisplay,
+      throwOnError: false, // Nunca quebra em erro; renderiza o restante da fórmula normalmente
+    });
+  } catch {
+    return `<code class="math-fallback">${rawFormula}</code>`;
+  }
+}
+
+/**
+ * Parser e Sanitizador Completo de LaTeX para HTML Acadêmico
+ */
+function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string {
+  if (!latex || !latex.trim()) {
+    return "<p style='color:#888;font-style:italic;text-align:center;padding:40px 0;'>Nenhum conteúdo para exibir.</p>";
+  }
+
+  // Se o documento original for uma menção a arquivo anexado legada
+  if (latex.startsWith("[Documento:") || latex.startsWith("[Arquivo")) {
+    const docName = latex.replace(/[\[\]]/g, "").trim();
+    return `
+      <div style="text-align:center;padding:54px 20px;">
+        <div style="width:52px;height:52px;border-radius:14px;background:${
+          isDark ? "rgba(107,140,255,0.15)" : "#eff6ff"
+        };margin:0 auto 16px auto;display:flex;align-items:center;justify-content:center;font-size:24px;">📄</div>
+        <h2 style="font-size:15px;font-weight:bold;margin-bottom:8px;color:${
+          isDark ? "#e0e0ec" : "#111827"
+        };">${docName}</h2>
+        <p style="font-size:12px;color:${
+          isDark ? "#8888a0" : "#6b7280"
+        };max-width:460px;margin:0 auto;text-indent:0;line-height:1.6;">O documento original foi processado via IA multimodal e sintetizado em código LaTeX integral no painel traduzido.</p>
+      </div>
+    `;
+  }
+
+  const footnotes: string[] = [];
+
+  // 1. Limpeza de Preâmbulos Técnicos e Pacotes de Configuração
   let clean = latex
     .replace(/\\documentclass(\[[^\]]*\])?\{[^}]+\}/g, "")
     .replace(/\\usepackage(\[[^\]]*\])?\{[^}]+\}/g, "")
-    .replace(/\\begin\{document\}/g, "")
-    .replace(/\\end\{document\}/g, "")
-    .replace(/\\maketitle/g, "");
+    .replace(/\\geometry(\[[^\]]*\])?\{[^}]+\}/gi, "")
+    .replace(/\\pagestyle\{[^}]+\}/gi, "")
+    .replace(/\\thispagestyle\{[^}]+\}/gi, "")
+    .replace(/\\setlength\{[^}]+\}\{[^}]+\}/gi, "")
+    .replace(/\\begin\{document\}/gi, "")
+    .replace(/\\end\{document\}/gi, "")
+    .replace(/\\maketitle/gi, "")
+    .replace(/%.*$/gm, ""); // remove comentários
 
-  // 1. Proteger e renderizar Equações em Bloco (Display Math)
+  // 2. Extração e Tratamento de Footnotes (\footnote{...})
+  clean = clean.replace(/\\footnote\{([^}]+)\}/g, (_, note) => {
+    footnotes.push(note);
+    const index = footnotes.length;
+    return `<sup style="color:${isDark ? "#6b8cff" : "#1a56db"};font-weight:bold;cursor:pointer;">[${index}]</sup>`;
+  });
+
+  // 3. Ambientes Matemáticos em Bloco (extrai fórmulas antes de processar quebras \\ de texto)
   clean = clean.replace(
-    /\\begin\{(equation|align|gather|multline)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,
+    /\\begin\{(equation|align|gather|multline|split)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,
     (_, __, formula) => {
-      try {
-        const mathHtml = katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false });
-        return isDarkTheme
-          ? `<div style="display:flex;justify-content:center;margin:18px 0;padding:12px;background:#0c0c12;border-radius:12px;border:1px solid rgba(107,140,255,0.25);overflow-x:auto;">${mathHtml}</div>`
-          : `<div class="math-display">${mathHtml}</div>`;
-      } catch {
-        return `<div class="math-display">$$${formula}$$</div>`;
-      }
+      const mathHtml = renderMathSafely(formula, true);
+      return `\n\n<div class="math-display" style="display:flex;justify-content:center;margin:18px 0;padding:8px 0;overflow-x:auto;">${mathHtml}</div>\n\n`;
     }
   );
 
   clean = clean.replace(/\\\[([\s\S]*?)\\\]/g, (_, formula) => {
-    try {
-      const mathHtml = katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false });
-      return isDarkTheme
-        ? `<div style="display:flex;justify-content:center;margin:18px 0;padding:12px;background:#0c0c12;border-radius:12px;border:1px solid rgba(107,140,255,0.25);overflow-x:auto;">${mathHtml}</div>`
-        : `<div class="math-display">${mathHtml}</div>`;
-    } catch {
-      return `<div class="math-display">$$${formula}$$</div>`;
-    }
+    const mathHtml = renderMathSafely(formula, true);
+    return `\n\n<div class="math-display" style="display:flex;justify-content:center;margin:18px 0;padding:8px 0;overflow-x:auto;">${mathHtml}</div>\n\n`;
   });
 
   clean = clean.replace(/\$\$([\s\S]*?)\$\$/g, (_, formula) => {
-    try {
-      const mathHtml = katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false });
-      return isDarkTheme
-        ? `<div style="display:flex;justify-content:center;margin:18px 0;padding:12px;background:#0c0c12;border-radius:12px;border:1px solid rgba(107,140,255,0.25);overflow-x:auto;">${mathHtml}</div>`
-        : `<div class="math-display">${mathHtml}</div>`;
-    } catch {
-      return `<div class="math-display">$$${formula}$$</div>`;
-    }
+    const mathHtml = renderMathSafely(formula, true);
+    return `\n\n<div class="math-display" style="display:flex;justify-content:center;margin:18px 0;padding:8px 0;overflow-x:auto;">${mathHtml}</div>\n\n`;
   });
 
-  // 2. Proteger e renderizar Fórmulas Inline ($...$ e \(...\))
+  // 4. Tabelas LaTeX \begin{tabular}
+  clean = clean.replace(/\\begin\{tabular\}\{[^}]+\}([\s\S]*?)\\end\{tabular\}/g, (_, tabBody) => {
+    const rows = tabBody
+      .split("\\\\")
+      .map((r: string) => r.trim())
+      .filter((r: string) => r.length > 0 && !r.startsWith("\\hline"));
+
+    const tableRows = rows
+      .map((row: string) => {
+        const cells = row.split("&").map((c: string) => c.trim().replace(/\\hline/g, ""));
+        const cellTags = cells
+          .map(
+            (c: string) =>
+              `<td style="border:1px solid ${
+                isDark ? "rgba(255,255,255,0.12)" : "#ccc"
+              };padding:7px 12px;">${c}</td>`
+          )
+          .join("");
+        return `<tr>${cellTags}</tr>`;
+      })
+      .join("");
+
+    return `\n\n<table style="border-collapse:collapse;margin:18px auto;width:96%;">${tableRows}</table>\n\n`;
+  });
+
+  // 5. Fórmulas Inline: $...$ e \(...\)
   clean = clean.replace(/\$([^\$\n]+?)\$/g, (_, formula) => {
-    try {
-      return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
-    } catch {
-      return `<code>$${formula}$</code>`;
-    }
+    return renderMathSafely(formula, false);
   });
 
   clean = clean.replace(/\\\((.+?)\\\)/g, (_, formula) => {
-    try {
-      return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
-    } catch {
-      return `<code>$${formula}$</code>`;
-    }
+    return renderMathSafely(formula, false);
   });
 
-  // 3. Estruturas de Títulos e Seções
-  clean = clean.replace(/\\title\{([^}]+)\}/g, isDarkTheme
-    ? '<h1 style="color:#ffffff;font-size:18px;font-weight:700;text-align:center;margin:20px 0 16px 0;">$1</h1>'
-    : '<h1>$1</h1>');
-
-  clean = clean.replace(/\\section\*?\{([^}]+)\}/g, isDarkTheme
-    ? '<h2 style="color:#6b8cff;font-size:14px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;margin:22px 0 10px 0;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,0.08);">$1</h2>'
-    : '<h2>$1</h2>');
-
-  clean = clean.replace(/\\subsection\*?\{([^}]+)\}/g, isDarkTheme
-    ? '<h3 style="color:#e8e8f0;font-size:13px;font-weight:600;margin:16px 0 8px 0;">$1</h3>'
-    : '<h3>$1</h3>');
-
-  clean = clean.replace(/\\subsubsection\*?\{([^}]+)\}/g, isDarkTheme
-    ? '<h4 style="color:#c8c8d8;font-size:12px;font-weight:600;margin:12px 0 6px 0;">$1</h4>'
-    : '<h4>$1</h4>');
-
-  // 4. Formatações de Texto Inline
+  // 6. Sanitização de Espaçamentos TeX e Quebras de Linha (\vskip, \hskip, \vspace, \\, \newline)
   clean = clean
-    .replace(/\\textbf\{([^}]+)\}/g, "<strong style='color:#ffffff;'>$1</strong>")
+    .replace(/\\(?:v|h)skip\s*([0-9.]+(?:em|ex|pt|cm|mm|in)?)?/gi, "<div style='height:12px;'></div>")
+    .replace(/\\kern\s*([0-9.]+(?:em|ex|pt|cm|mm|in)?)?/gi, "&nbsp;")
+    .replace(/\\vspace\*?\{[^}]+\}/gi, "<div style='height:12px;'></div>")
+    .replace(/\\hspace\*?\{[^}]+\}/gi, "&nbsp;&nbsp;")
+    .replace(/\\smallskip/gi, "<div style='height:6px;'></div>")
+    .replace(/\\medskip/gi, "<div style='height:12px;'></div>")
+    .replace(/\\bigskip/gi, "<div style='height:20px;'></div>")
+    .replace(/\\noindent\s*/gi, "")
+    .replace(/\\newline|\\par\s*/gi, "<br />")
+    .replace(/\\\\/g, "<br />") // Converte quebras de linha \\ em <br />
+    .replace(/\\newpage|\\clearpage/gi, `<hr style="margin:24px 0;border:0;border-top:1px dashed ${isDark ? '#333' : '#ccc'};" />`);
+
+  // 7. Sanitização de Ambientes de Alinhamento e Caixas de Texto
+  clean = clean
+    .replace(/\\begin\{center\}/gi, `<div style="text-align:center;margin:14px 0;">`)
+    .replace(/\\end\{center\}/gi, `</div>`)
+    .replace(/\\begin\{flushleft\}/gi, `<div style="text-align:left;margin:8px 0;">`)
+    .replace(/\\end\{flushleft\}/gi, `</div>`)
+    .replace(/\\begin\{flushright\}/gi, `<div style="text-align:right;margin:8px 0;">`)
+    .replace(/\\end\{flushright\}/gi, `</div>`)
+    .replace(/\\begin\{abstract\}/gi, `<div style="margin:20px 24px;padding:12px 18px;background:${isDark ? 'rgba(255,255,255,0.03)' : '#fcfcfc'};border-left:3px solid ${isDark ? '#6b8cff' : '#1a56db'};font-size:12px;line-height:1.6;"><strong style="display:block;text-align:center;margin-bottom:6px;font-size:12px;letter-spacing:0.05em;text-transform:uppercase;">Resumo / Abstract</strong>`)
+    .replace(/\\end\{abstract\}/gi, `</div>`);
+
+  // 8. Modificadores Tipográficos Clássicos
+  clean = clean
+    .replace(/\\large\s*\\bf\s*/gi, "<strong style='font-size:16px;'>")
+    .replace(/\\Large\s*\\bf\s*/gi, "<strong style='font-size:18px;'>")
+    .replace(/\\large/gi, "<span style='font-size:15px;'>")
+    .replace(/\\Large/gi, "<span style='font-size:17px;'>")
+    .replace(/\\small\s*/gi, "<span style='font-size:11.5px;color:${isDark ? '#a0a0b8' : '#555'};'>")
+    .replace(/\\footnotesize\s*/gi, "<span style='font-size:10.5px;color:${isDark ? '#8888a0' : '#666'};'>")
+    .replace(/\\tiny\s*/gi, "<span style='font-size:9.5px;'>")
+    .replace(/\\bf\s+/gi, "<strong>")
+    .replace(/\\it\s+/gi, "<em>");
+
+  // 9. Títulos, Autores e Seções Acadêmicas
+  clean = clean.replace(
+    /\\title\{([^}]+)\}/g,
+    `\n\n<h1 style="font-size:20px;font-weight:bold;text-align:center;margin:24px 0 14px 0;line-height:1.3;color:${
+      isDark ? "#ffffff" : "#111111"
+    };">$1</h1>\n\n`
+  );
+
+  clean = clean.replace(
+    /\\author\{([^}]+)\}/g,
+    `\n\n<div style="text-align:center;font-size:13px;font-weight:600;margin:6px 0 2px 0;color:${isDark ? '#e0e0ec' : '#333333'};">$1</div>\n\n`
+  );
+
+  clean = clean.replace(
+    /\\date\{([^}]+)\}/g,
+    `\n\n<div style="text-align:center;font-size:11px;color:${isDark ? '#8888a0' : '#666666'};margin-bottom:18px;">$1</div>\n\n`
+  );
+
+  clean = clean.replace(
+    /\\section\*?\{([^}]+)\}/g,
+    `\n\n<h2 style="font-size:14.5px;font-weight:bold;margin:24px 0 10px 0;border-bottom:1px solid ${
+      isDark ? "rgba(255,255,255,0.1)" : "#ddd"
+    };padding-bottom:5px;color:${isDark ? "#6b8cff" : "#111111"};">$1</h2>\n\n`
+  );
+
+  clean = clean.replace(
+    /\\subsection\*?\{([^}]+)\}/g,
+    `\n\n<h3 style="font-size:13px;font-weight:bold;margin:18px 0 8px 0;color:${
+      isDark ? "#e8e8f0" : "#222222"
+    };">$1</h3>\n\n`
+  );
+
+  clean = clean.replace(
+    /\\subsubsection\*?\{([^}]+)\}/g,
+    `\n\n<h4 style="font-size:12px;font-weight:bold;margin:14px 0 6px 0;color:${
+      isDark ? "#c8c8d8" : "#333333"
+    };">$1</h4>\n\n`
+  );
+
+  // 10. Caracteres e Símbolos Especiais em LaTeX
+  clean = clean
+    .replace(/\\textbf\{([^}]+)\}/g, "<strong>$1</strong>")
     .replace(/\\textit\{([^}]+)\}/g, "<em>$1</em>")
     .replace(/\\emph\{([^}]+)\}/g, "<em>$1</em>")
     .replace(/\\underline\{([^}]+)\}/g, "<u>$1</u>")
-    .replace(/\\cite\{([^}]+)\}/g, "<span style='color:#6b8cff;font-size:11px;'>[$1]</span>")
-    .replace(/\\ref\{([^}]+)\}/g, "<span style='color:#6b8cff;'>$1</span>")
+    .replace(/\\cite\{([^}]+)\}/g, `<span style="color:${isDark ? "#6b8cff" : "#1a56db"};font-size:11px;">[$1]</span>`)
+    .replace(/\\ref\{([^}]+)\}/g, `<span style="color:${isDark ? "#6b8cff" : "#1a56db"};font-weight:500;">$1</span>`)
     .replace(/\\label\{([^}]+)\}/g, "")
     .replace(/\\%/g, "%")
-    .replace(/\\&/g, "&");
+    .replace(/\\&/g, "&")
+    .replace(/\\S\s*([0-9]+)/g, "§ $1")
+    .replace(/\\S/g, "§")
+    .replace(/\\"a/g, "ä").replace(/\\"o/g, "ö").replace(/\\"u/g, "ü")
+    .replace(/\\"A/g, "Ä").replace(/\\"O/g, "Ö").replace(/\\"U/g, "Ü")
+    .replace(/\\ss/g, "ß")
+    .replace(/\\dots/g, "...")
+    .replace(/---/g, "—").replace(/--/g, "–")
+    .replace(/``/g, "“").replace(/''/g, "”");
 
-  // 5. Listas (itemize / enumerate)
+  // 11. Listas (itemize / enumerate)
   clean = clean.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g, (_, items) => {
     const listItems = items
       .split("\\item")
@@ -330,7 +650,7 @@ function convertFullLatexToHtml(latex: string, isDarkTheme: boolean): string {
       .filter((i: string) => i.length > 0)
       .map((i: string) => `<li style="margin-bottom:6px;">${i}</li>`)
       .join("");
-    return `<ul style="margin:12px 0 16px 20px;list-style-type:disc;">${listItems}</ul>`;
+    return `\n\n<ul style="margin:12px 0 16px 28px;list-style-type:disc;">${listItems}</ul>\n\n`;
   });
 
   clean = clean.replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g, (_, items) => {
@@ -340,10 +660,10 @@ function convertFullLatexToHtml(latex: string, isDarkTheme: boolean): string {
       .filter((i: string) => i.length > 0)
       .map((i: string) => `<li style="margin-bottom:6px;">${i}</li>`)
       .join("");
-    return `<ol style="margin:12px 0 16px 20px;list-style-type:decimal;">${listItems}</ol>`;
+    return `\n\n<ol style="margin:12px 0 16px 28px;list-style-type:decimal;">${listItems}</ol>\n\n`;
   });
 
-  // 6. Parágrafos estruturados
+  // 12. Parágrafos Estruturados
   const blocks = clean.split(/\n\s*\n/);
   const htmlBlocks = blocks.map((block) => {
     const trimmed = block.trim();
@@ -356,12 +676,36 @@ function convertFullLatexToHtml(latex: string, isDarkTheme: boolean): string {
       trimmed.startsWith("<div") ||
       trimmed.startsWith("<ul") ||
       trimmed.startsWith("<ol") ||
-      trimmed.startsWith("<table")
+      trimmed.startsWith("<table") ||
+      trimmed.startsWith("<blockquote") ||
+      trimmed.startsWith("<hr")
     ) {
       return trimmed;
     }
-    return `<p style="margin-bottom:14px;text-align:justify;color:${isDarkTheme ? "#c8c8d8" : "#222"};">${trimmed}</p>`;
+    return `<p style="margin-bottom:14px;text-align:justify;text-indent:1.8em;">${trimmed}</p>`;
   });
 
-  return htmlBlocks.join("\n");
+  let outputHtml = htmlBlocks.join("\n");
+
+  // 13. Renderiza Notas de Rodapé no Fim da Página
+  if (footnotes.length > 0) {
+    const notesList = footnotes
+      .map(
+        (fn, idx) =>
+          `<div style="margin-bottom:4px;"><sup style="color:${
+            isDark ? "#6b8cff" : "#1a56db"
+          };font-weight:bold;">[${idx + 1}]</sup> ${fn}</div>`
+      )
+      .join("");
+
+    outputHtml += `
+      <div style="margin-top:40px;padding-top:12px;border-top:1px solid ${
+        isDark ? "rgba(255,255,255,0.12)" : "#bbb"
+      };font-size:11px;color:${isDark ? "#a0a0b8" : "#555"};">
+        ${notesList}
+      </div>
+    `;
+  }
+
+  return outputHtml;
 }
