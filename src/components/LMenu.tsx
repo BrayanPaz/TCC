@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  Modal,
+  ActivityIndicator,
+  Image,
+} from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { menuStyles as styles } from "../styles/menuStyles";
 import {
@@ -10,6 +19,13 @@ import {
 } from "../controllers/historyController";
 import { resetPassword } from "../controllers/authController";
 import { auth } from "../controllers/firebaseConfig";
+import {
+  getUserProfile,
+  updateUserProfileData,
+  compressImageToDataUrl,
+  deleteUserAccountAndAllData,
+  UserProfile,
+} from "../controllers/userController";
 import { useLanguage } from "../context/LanguageContext";
 import { UILanguage } from "../i18n/translations";
 
@@ -57,9 +73,56 @@ export default function LMenu({
   onLogout,
 }: LMenuProps) {
   const { t, language, setLanguage, availableLanguages } = useLanguage();
-  const userEmail = auth.currentUser?.email || "Usuário";
-  const userDisplayName = userEmail.split("@")[0];
+
+  // Estados do Perfil do Usuário
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameSaveFeedback, setNameSaveFeedback] = useState<string | null>(null);
+
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoFeedback, setPhotoFeedback] = useState<string | null>(null);
+
+  // Modal de Exclusão Definitiva de Conta (LGPD)
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+
+  // Modais de Perfil & Idioma
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+
+  const userEmail = auth.currentUser?.email || userProfile?.email || "Usuário";
+  const userDisplayName =
+    userProfile?.displayName || auth.currentUser?.displayName || userEmail.split("@")[0];
+  const userPhotoURL = userProfile?.photoURL || auth.currentUser?.photoURL || null;
   const userInitials = (userDisplayName || "U").substring(0, 2).toUpperCase();
+
+  // Carrega e sincroniza o perfil do usuário
+  useEffect(() => {
+    async function loadProfile() {
+      if (auth.currentUser) {
+        const profile = await getUserProfile(auth.currentUser.uid);
+        if (profile) {
+          setUserProfile(profile);
+          setEditDisplayName(profile.displayName || auth.currentUser.displayName || "");
+        } else {
+          const fallbackName =
+            auth.currentUser.displayName || auth.currentUser.email?.split("@")[0] || "Usuário";
+          setUserProfile({
+            uid: auth.currentUser.uid,
+            email: auth.currentUser.email,
+            displayName: fallbackName,
+            photoURL: auth.currentUser.photoURL || null,
+          });
+          setEditDisplayName(fallbackName);
+        }
+      }
+    }
+    loadProfile();
+  }, [auth.currentUser, showProfileModal]);
 
   // Estados de busca e edição inline de chat
   const [searchQuery, setSearchQuery] = useState("");
@@ -77,10 +140,6 @@ export default function LMenu({
   const [editGroupNameVal, setEditGroupNameVal] = useState("");
   const [pendingDeleteGroup, setPendingDeleteGroup] = useState<ChatGroup | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<{ [groupId: string]: boolean }>({});
-
-  // Modais de Perfil & Idioma
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showLanguageModal, setShowLanguageModal] = useState(false);
 
   // Estados do Menu de Usuário (Estatísticas, Instrução Padrão, Reset de Senha, Exportação, Importação)
   const [customPrompt, setCustomPrompt] = useState("");
@@ -181,6 +240,94 @@ export default function LMenu({
     if (success) {
       setResetSent(true);
       setTimeout(() => setResetSent(false), 4000);
+    }
+  };
+
+  // Salvar novo nome de exibição
+  const handleSaveDisplayName = async () => {
+    const trimmed = editDisplayName.trim();
+    if (!trimmed) return;
+    setIsSavingName(true);
+    setNameSaveFeedback(null);
+    const res = await updateUserProfileData(trimmed, userPhotoURL);
+    setIsSavingName(false);
+    if (res.success) {
+      setUserProfile((prev) => (prev ? { ...prev, displayName: trimmed } : null));
+      setIsEditingName(false);
+      setNameSaveFeedback(t("nameSaved"));
+      setTimeout(() => setNameSaveFeedback(null), 3000);
+    } else {
+      setNameSaveFeedback(res.error || "Erro ao salvar nome.");
+    }
+  };
+
+  // Upload e compressão de foto de perfil (Canvas leve)
+  const handlePhotoSelect = async (e: any) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingPhoto(true);
+      setPhotoFeedback(null);
+      const dataUrl = await compressImageToDataUrl(file);
+      const res = await updateUserProfileData(userDisplayName, dataUrl);
+      if (res.success) {
+        setUserProfile((prev) => (prev ? { ...prev, photoURL: dataUrl } : null));
+        setPhotoFeedback(t("photoUpdated"));
+        setTimeout(() => setPhotoFeedback(null), 3000);
+      } else {
+        setPhotoFeedback(res.error || "Erro ao salvar foto.");
+      }
+    } catch (err: any) {
+      console.error("Erro no upload de foto:", err);
+      setPhotoFeedback(err.message || "Erro ao processar imagem.");
+    } finally {
+      setIsUploadingPhoto(false);
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const triggerPhotoUpload = () => {
+    if (typeof document !== "undefined") {
+      document.getElementById("profile-avatar-file-input")?.click();
+    }
+  };
+
+  // Remover foto de perfil
+  const handleRemovePhoto = async () => {
+    try {
+      setIsUploadingPhoto(true);
+      setPhotoFeedback(null);
+      const res = await updateUserProfileData(userDisplayName, null);
+      if (res.success) {
+        setUserProfile((prev) => (prev ? { ...prev, photoURL: null } : null));
+        setPhotoFeedback(t("photoRemoved"));
+        setTimeout(() => setPhotoFeedback(null), 3000);
+      } else {
+        setPhotoFeedback(res.error || "Erro ao remover foto.");
+      }
+    } catch (err: any) {
+      setPhotoFeedback(err.message || "Erro ao remover foto.");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  // Confirmar exclusão total de conta (LGPD)
+  const handleConfirmDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toUpperCase() !== "EXCLUIR") {
+      setDeleteAccountError("Por favor, digite EXCLUIR para confirmar a exclusão.");
+      return;
+    }
+    setIsDeletingAccount(true);
+    setDeleteAccountError(null);
+    const res = await deleteUserAccountAndAllData();
+    setIsDeletingAccount(false);
+    if (res.success) {
+      setShowDeleteAccountModal(false);
+      setShowProfileModal(false);
+      onLogout();
+    } else {
+      setDeleteAccountError(res.error || "Erro ao excluir conta.");
     }
   };
 
@@ -642,9 +789,16 @@ export default function LMenu({
             onPress={() => setShowProfileModal(true)}
             accessibilityLabel={t("userProfile")}
           >
-            <View className="w-6 h-6 rounded-full bg-[#6b8cff]/20 items-center justify-center mr-2 border border-[#6b8cff]/30">
-              <Text className="text-[10px] font-bold text-[#6b8cff]">{userInitials}</Text>
-            </View>
+            {userPhotoURL ? (
+              <Image
+                source={{ uri: userPhotoURL }}
+                style={{ width: 24, height: 24, borderRadius: 12, marginRight: 8 }}
+              />
+            ) : (
+              <View className="w-6 h-6 rounded-full bg-[#6b8cff]/20 items-center justify-center mr-2 border border-[#6b8cff]/30">
+                <Text className="text-[10px] font-bold text-[#6b8cff]">{userInitials}</Text>
+              </View>
+            )}
             <Text
               className={`text-xs font-medium truncate ${
                 isLight ? "text-neutral-800" : "text-[#e8e8f0]"
@@ -1140,14 +1294,148 @@ export default function LMenu({
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} className="pr-1">
-              {/* Avatar & Identificação */}
+              {/* Input oculto na Web para upload de foto */}
+              {typeof document !== "undefined" && (
+                <input
+                  id="profile-avatar-file-input"
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={handlePhotoSelect}
+                />
+              )}
+
+              {/* Avatar & Identificação com Edição */}
               <View className="items-center py-2 mb-3">
-                <View className="w-14 h-14 rounded-full bg-[#6b8cff]/20 items-center justify-center mb-2 border-2 border-[#6b8cff]/40 shadow-sm">
-                  <Text className="text-xl font-bold text-[#6b8cff]">{userInitials}</Text>
+                {/* Imagem do Avatar com Badge de Câmera */}
+                <View className="relative mb-2">
+                  {userPhotoURL ? (
+                    <Image
+                      source={{ uri: userPhotoURL }}
+                      style={{ width: 64, height: 64, borderRadius: 32 }}
+                    />
+                  ) : (
+                    <View className="w-16 h-16 rounded-full bg-[#6b8cff]/20 items-center justify-center border-2 border-[#6b8cff]/40 shadow-sm">
+                      <Text className="text-2xl font-bold text-[#6b8cff]">{userInitials}</Text>
+                    </View>
+                  )}
+
+                  {/* Botão Alterar Foto */}
+                  <TouchableOpacity
+                    className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-[#6b8cff] items-center justify-center shadow-md active:scale-90 border border-white"
+                    onPress={triggerPhotoUpload}
+                    disabled={isUploadingPhoto}
+                    accessibilityLabel={t("changePhoto")}
+                  >
+                    {isUploadingPhoto ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Feather name="camera" size={11} color="#ffffff" />
+                    )}
+                  </TouchableOpacity>
                 </View>
-                <Text className={`font-semibold text-base ${isLight ? "text-neutral-900" : "text-[#e8e8f0]"}`}>
-                  {userDisplayName}
-                </Text>
+
+                {/* Opções de Foto (Alterar / Remover) */}
+                <View className="flex-row items-center gap-3 mb-2">
+                  <TouchableOpacity
+                    onPress={triggerPhotoUpload}
+                    disabled={isUploadingPhoto}
+                    className="active:opacity-70"
+                  >
+                    <Text className="text-[11px] text-[#6b8cff] font-semibold">
+                      {isUploadingPhoto ? t("loading") : t("changePhoto")}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {userPhotoURL && (
+                    <>
+                      <Text className={`text-[11px] ${isLight ? "text-neutral-300" : "text-white/20"}`}>•</Text>
+                      <TouchableOpacity
+                        onPress={handleRemovePhoto}
+                        disabled={isUploadingPhoto}
+                        className="active:opacity-70"
+                      >
+                        <Text className="text-[11px] text-red-400 font-medium">
+                          {t("removePhoto")}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+
+                {photoFeedback && (
+                  <Text className="text-[11px] text-emerald-500 font-medium mb-1">
+                    {photoFeedback}
+                  </Text>
+                )}
+
+                {/* Nome de Exibição com Modo de Edição */}
+                {isEditingName ? (
+                  <View className="w-full max-w-xs mt-1 mb-1">
+                    <View className="flex-row items-center gap-1.5">
+                      <TextInput
+                        className={`flex-1 text-xs px-2.5 py-1.5 rounded-lg border ${
+                          isLight
+                            ? "bg-white border-neutral-300 text-neutral-900"
+                            : "bg-white/[0.06] border-white/10 text-white"
+                        }`}
+                        placeholder={t("displayNamePlaceholder")}
+                        placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
+                        value={editDisplayName}
+                        onChangeText={setEditDisplayName}
+                        autoFocus
+                      />
+                      <TouchableOpacity
+                        className="px-2.5 py-1.5 rounded-lg bg-[#6b8cff] active:scale-95 flex-row items-center gap-1"
+                        onPress={handleSaveDisplayName}
+                        disabled={isSavingName}
+                      >
+                        {isSavingName ? (
+                          <ActivityIndicator size="small" color="#ffffff" />
+                        ) : (
+                          <>
+                            <Feather name="check" size={12} color="#ffffff" />
+                            <Text className="text-white text-[11px] font-semibold">{t("save")}</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        className={`px-2 py-1.5 rounded-lg ${
+                          isLight ? "bg-neutral-200" : "bg-white/[0.08]"
+                        } active:scale-95`}
+                        onPress={() => {
+                          setEditDisplayName(userDisplayName);
+                          setIsEditingName(false);
+                        }}
+                      >
+                        <Feather name="x" size={12} color={isLight ? "#4b5563" : "#9ca3af"} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <View className="flex-row items-center gap-1.5 mt-0.5">
+                    <Text className={`font-semibold text-base ${isLight ? "text-neutral-900" : "text-[#e8e8f0]"}`}>
+                      {userDisplayName}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditDisplayName(userDisplayName);
+                        setIsEditingName(true);
+                      }}
+                      className="p-1 rounded-md hover:bg-white/[0.05] active:scale-90"
+                      accessibilityLabel={t("edit")}
+                    >
+                      <Feather name="edit-2" size={12} color="#6b8cff" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {nameSaveFeedback && (
+                  <Text className="text-[11px] text-emerald-500 font-medium mb-1">
+                    {nameSaveFeedback}
+                  </Text>
+                )}
+
                 <Text className={`text-xs mt-0.5 ${isLight ? "text-neutral-500" : "text-[#6b6b80]"}`}>
                   {userEmail}
                 </Text>
@@ -1411,6 +1699,37 @@ export default function LMenu({
                   <Feather name="lock" size={12} color="#6b8cff" />
                 </View>
               </View>
+
+              {/* 6. ZONA DE PERIGO (EXCLUSÃO TOTAL DE CONTA - LGPD) */}
+              <View className="mb-4">
+                <Text className="text-[10px] uppercase font-bold tracking-wider mb-1.5 text-red-500">
+                  {t("dangerZone")}
+                </Text>
+                <View
+                  className={`rounded-xl p-3 border ${
+                    isLight
+                      ? "bg-red-50/60 border-red-200"
+                      : "bg-red-500/[0.06] border-red-500/20"
+                  }`}
+                >
+                  <Text className={`text-[11px] mb-2.5 leading-relaxed ${isLight ? "text-neutral-600" : "text-[#d0d0e0]"}`}>
+                    {t("deleteAccountDesc")}
+                  </Text>
+                  <TouchableOpacity
+                    className="py-2 px-3 rounded-lg bg-red-500/15 border border-red-500/30 flex-row items-center justify-center gap-2 active:bg-red-500/25"
+                    onPress={() => {
+                      setDeleteConfirmText("");
+                      setDeleteAccountError(null);
+                      setShowDeleteAccountModal(true);
+                    }}
+                  >
+                    <Feather name="trash-2" size={12} color="#ef4444" />
+                    <Text className="text-red-500 font-semibold text-xs">
+                      {t("deleteAccount")}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </ScrollView>
 
             {/* Fechar */}
@@ -1424,6 +1743,91 @@ export default function LMenu({
                 {t("close")}
               </Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE CONTA (LGPD) */}
+      <Modal
+        visible={showDeleteAccountModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isDeletingAccount && setShowDeleteAccountModal(false)}
+      >
+        <View className="flex-1 bg-black/75 items-center justify-center p-4">
+          <View
+            className={`w-full max-w-sm rounded-2xl p-6 border shadow-2xl ${
+              isLight ? "bg-white border-red-200" : "bg-[#181216] border-red-500/30"
+            }`}
+          >
+            <View className="flex-row items-center gap-2 mb-3">
+              <View className="w-8 h-8 rounded-full bg-red-500/20 items-center justify-center">
+                <Feather name="alert-triangle" size={16} color="#ef4444" />
+              </View>
+              <Text className={`font-bold text-sm ${isLight ? "text-neutral-900" : "text-white"}`}>
+                {t("deleteAccountModalTitle")}
+              </Text>
+            </View>
+
+            <Text className={`text-xs leading-relaxed mb-4 ${isLight ? "text-neutral-600" : "text-[#c8c8d8]"}`}>
+              {t("deleteAccountWarning")}
+            </Text>
+
+            {deleteAccountError && (
+              <View className="mb-3 p-2.5 rounded-lg bg-red-500/15 border border-red-500/30">
+                <Text className="text-xs text-red-400">{deleteAccountError}</Text>
+              </View>
+            )}
+
+            <Text className={`text-[11px] font-semibold mb-1.5 ${isLight ? "text-neutral-700" : "text-[#e8e8f0]"}`}>
+              {t("deleteAccountConfirmPrompt")}
+            </Text>
+            <TextInput
+              className={`w-full p-2.5 rounded-xl border text-xs mb-4 font-mono font-bold tracking-widest ${
+                isLight
+                  ? "bg-neutral-50 border-neutral-300 text-neutral-900"
+                  : "bg-white/[0.05] border-white/15 text-white"
+              }`}
+              placeholder="EXCLUIR"
+              placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
+              value={deleteConfirmText}
+              onChangeText={setDeleteConfirmText}
+              autoCapitalize="characters"
+              editable={!isDeletingAccount}
+            />
+
+            <View className="flex-row gap-2">
+              <TouchableOpacity
+                className={`flex-1 py-2.5 rounded-xl items-center border ${
+                  isLight ? "bg-neutral-100 border-neutral-200" : "bg-white/[0.05] border-white/10"
+                }`}
+                onPress={() => setShowDeleteAccountModal(false)}
+                disabled={isDeletingAccount}
+              >
+                <Text className={`text-xs font-medium ${isLight ? "text-neutral-700" : "text-white"}`}>
+                  {t("cancel")}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                className={`flex-1 py-2.5 rounded-xl items-center justify-center flex-row gap-1.5 ${
+                  deleteConfirmText.trim().toUpperCase() === "EXCLUIR" && !isDeletingAccount
+                    ? "bg-red-600 active:bg-red-700"
+                    : "bg-red-900/40 opacity-50"
+                }`}
+                onPress={handleConfirmDeleteAccount}
+                disabled={deleteConfirmText.trim().toUpperCase() !== "EXCLUIR" || isDeletingAccount}
+              >
+                {isDeletingAccount ? (
+                  <>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                    <Text className="text-white text-xs font-semibold">{t("deleteAccountDeleting")}</Text>
+                  </>
+                ) : (
+                  <Text className="text-white text-xs font-semibold">{t("deleteAccountConfirmBtn")}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

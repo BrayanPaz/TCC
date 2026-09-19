@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
 
 export default function SignUp() {
   const router = useRouter();
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -72,7 +73,7 @@ export default function SignUp() {
 
     setLoading(true);
     setAuthError(null);
-    const { user, error, errorCode } = await signUpUser(email, password);
+    const { user, error, errorCode } = await signUpUser(email, password, fullName.trim());
     setLoading(false);
 
     if (error) {
@@ -196,6 +197,18 @@ export default function SignUp() {
 
         <View className={styles.formContainer}>
           <View>
+            <Text className={styles.inputLabel}>Nome Completo (opcional)</Text>
+            <TextInput
+              className={styles.inputField}
+              placeholder="Como deseja ser chamado?"
+              placeholderTextColor="#5a5a70"
+              value={fullName}
+              onChangeText={setFullName}
+              autoCapitalize="words"
+            />
+          </View>
+
+          <View className={styles.inputGroup}>
             <Text className={styles.inputLabel}>E-mail</Text>
             <TextInput
               className={styles.inputField}

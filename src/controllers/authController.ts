@@ -85,6 +85,8 @@ export function mapAuthError(error: any): { message: string; code: string } {
   }
 }
 
+import { ensureUserProfile } from "./userController";
+
 /**
  * Login com E-mail e Senha
  */
@@ -92,6 +94,11 @@ export async function loginUser(email: string, password: string): Promise<AuthRe
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
+
+    // Sincroniza o perfil do usuário em background
+    ensureUserProfile(user).catch((err) =>
+      console.warn("Aviso ao sincronizar perfil do usuário no login:", err)
+    );
 
     return {
       user,
@@ -116,10 +123,21 @@ export async function loginUser(email: string, password: string): Promise<AuthRe
 /**
  * Cadastro com E-mail, Senha e envio automático de Verificação de E-mail
  */
-export async function signUpUser(email: string, password: string): Promise<AuthResult> {
+export async function signUpUser(
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<AuthResult> {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
+
+    // Cria e sincroniza o perfil inicial com o nome informado ou derivado do email
+    try {
+      await ensureUserProfile(user, displayName);
+    } catch (profileErr) {
+      console.warn("Aviso ao criar perfil inicial de cadastro:", profileErr);
+    }
 
     // Envia e-mail de verificação oficial pelo Firebase
     try {
@@ -151,7 +169,16 @@ export async function loginWithGoogle(): Promise<AuthResult> {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     const userCredential = await signInWithPopup(auth, provider);
-    return { user: userCredential.user, error: null, errorCode: null };
+    const user = userCredential.user;
+
+    // Captura e armazena automaticamente o nome e a foto do perfil Google
+    try {
+      await ensureUserProfile(user);
+    } catch (profileErr) {
+      console.warn("Aviso ao sincronizar perfil Google do usuário:", profileErr);
+    }
+
+    return { user, error: null, errorCode: null };
   } catch (error: any) {
     const mapped = mapAuthError(error);
     return { user: null, error: mapped.message, errorCode: mapped.code };
@@ -179,6 +206,12 @@ export async function checkRedirectResult(): Promise<AuthResult | null> {
   try {
     const userCredential = await getRedirectResult(auth);
     if (userCredential && userCredential.user) {
+      // Captura e armazena automaticamente o nome e a foto do perfil Google
+      try {
+        await ensureUserProfile(userCredential.user);
+      } catch (profileErr) {
+        console.warn("Aviso ao sincronizar perfil Google no redirecionamento:", profileErr);
+      }
       return { user: userCredential.user, error: null, errorCode: null };
     }
     return null;
