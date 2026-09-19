@@ -3,11 +3,13 @@ import "katex/dist/katex.min.css";
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { LanguageProvider } from '../context/LanguageContext';
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" backgroundColor="#121212" translucent />
+    <LanguageProvider>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
       
       <Stack
         screenOptions={{
@@ -38,5 +40,6 @@ export default function RootLayout() {
         />
       </Stack>
     </SafeAreaProvider>
+  </LanguageProvider>
   );
 }

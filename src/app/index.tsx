@@ -18,6 +18,8 @@ import { auth } from "../controllers/firebaseConfig";
 import { logoutUser } from "../controllers/authController";
 import {
   runAgenticTranslationPipeline,
+  runPipelinePhase1,
+  runPipelinePhase2,
   updateTranslationWithTermDecision,
   TermDecision,
   AgenticPipelineProgress,
@@ -30,61 +32,28 @@ import {
 } from "../controllers/glossaryController";
 import {
   saveTranslationHistory,
+  updateTranslationHistory,
   getTranslationHistory,
   deleteTranslationHistory,
+  renameTranslationHistory,
+  assignChatToGroup,
+  getChatGroups,
+  createChatGroup,
+  renameChatGroup,
+  deleteChatGroup,
   TranslationHistoryItem,
+  ChatGroup,
 } from "../controllers/historyController";
 
 import LMenu from "../components/LMenu";
 import RMenu from "../components/RMenu";
 import LatexViewer from "../components/LatexViewer";
 import { mainStyles as styles } from "../styles/mainStyles";
+import { useLanguage } from "../context/LanguageContext";
+import { AVAILABLE_TRANSLATION_LANGUAGES } from "../config/languages";
 
-// Lista de idiomas disponíveis
-const AVAILABLE_LANGUAGES = [
-  { code: "auto", name: "Detectar automaticamente" },
-  { code: "en", name: "Inglês (EN)" },
-  { code: "pt-BR", name: "Português (PT-BR)" },
-  { code: "es", name: "Espanhol (ES)" },
-  { code: "fr", name: "Francês (FR)" },
-  { code: "de", name: "Alemão (DE)" },
-  { code: "it", name: "Italiano (IT)" },
-  { code: "zh", name: "Chinês (ZH)" },
-  { code: "ja", name: "Japonês (JA)" },
-  { code: "ru", name: "Russo (RU)" },
-];
-
-// Exemplos de teste integrados para demonstração imediata
-const SAMPLE_DOCS = [
-  {
-    title: "Artigo Acadêmico com LaTeX",
-    content: `\\section{Introduction to Quantum Computing}
-The state of a quantum register with $n$ qubits is described by a vector in a $2^n$-dimensional Hilbert space:
-\\[ |\\psi\\rangle = \\sum_{x=0}^{2^n-1} \\alpha_x |x\\rangle, \\quad \\sum_x |\\alpha_x|^2 = 1 \\]
-
-Recent advancements in superconducting circuits have demonstrated quantum supremacy in specific computational tasks.
-\\subsection{Mathematical Formulation}
-Let $H$ denote the Hadamard transform matrix defined as:
-\\[ H = \\frac{1}{\\sqrt{2}} \\begin{pmatrix} 1 & 1 \\\\ 1 & -1 \\end{pmatrix} \\]
-Applying $H^{\\otimes n}$ creates a uniform superposition of all computational basis states.`,
-  },
-  {
-    title: "Epistemologia da Inteligência Artificial (Figma)",
-    content: `The question of whether artificial systems can possess genuine understanding — as opposed to mere pattern recognition — has occupied philosophers and cognitive scientists for decades.
-
-Contemporary large language models present a striking challenge to classical cognitivism. They produce coherent, contextually appropriate outputs across domains as disparate as legal reasoning, poetic composition, and mathematical proof — yet the internal mechanisms underlying this competence remain opaque even to their architects.
-
-The concept of emergent capability complicates matters further. At certain scales, capabilities appear that were not explicitly trained for and could not have been predicted from smaller model behavior.`,
-  },
-  {
-    title: "Manual Técnico de Machine Learning",
-    content: `\\section{Data Pipeline and Neural Network Training}
-Before initiating the training set epoch, ensure the embedding vectors are normalized:
-\\[ \\hat{v} = \\frac{v - \\mu}{\\sigma + \\epsilon} \\]
-
-Perform fine-tuning using stochastic gradient descent with Adam optimizer. Measure the benchmark performance against standard validation sets.`,
-  },
-];
+// Catálogo completo de idiomas suportados para tradução
+const AVAILABLE_LANGUAGES = AVAILABLE_TRANSLATION_LANGUAGES;
 
 interface UploadedFile {
   name: string;
@@ -105,6 +74,7 @@ export default function Index() {
   });
 
   const isLight = theme === "light";
+  const { t } = useLanguage();
 
   const handleToggleTheme = (newTheme: "dark" | "light") => {
     setTheme(newTheme);
@@ -126,6 +96,9 @@ export default function Index() {
   const [isSwitchingDoc, setIsSwitchingDoc] = useState(false);
   const [inputText, setInputText] = useState("");
   const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
+  const [isDragOverDropzone, setIsDragOverDropzone] = useState(false);
+  const [isWindowDragging, setIsWindowDragging] = useState(false);
+  const dropzoneRef = React.useRef<any>(null);
   const [sourceLang, setSourceLang] = useState("auto");
   const [targetLang, setTargetLang] = useState("pt-BR");
   const [promptInstructions, setPromptInstructions] = useState("");
@@ -133,6 +106,13 @@ export default function Index() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [pipelineProgress, setPipelineProgress] = useState<AgenticPipelineProgress | null>(null);
   const [identifiedTerms, setIdentifiedTerms] = useState<TermDecision[]>([]);
+  const [phase1Data, setPhase1Data] = useState<{
+    rawCleanContent: string;
+    formulasCount: number;
+    identifiedTerms: TermDecision[];
+    docTitle: string;
+  } | null>(null);
+  const [isPausedForTerms, setIsPausedForTerms] = useState(false);
 
   const [originalFullText, setOriginalFullText] = useState("");
   const [translatedFullText, setTranslatedFullText] = useState("");
@@ -140,6 +120,7 @@ export default function Index() {
   // Firestore Data
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
   const [history, setHistory] = useState<TranslationHistoryItem[]>([]);
+  const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [newOriginalTerm, setNewOriginalTerm] = useState("");
   const [newTranslatedTerm, setNewTranslatedTerm] = useState("");
 
@@ -155,15 +136,66 @@ export default function Index() {
     return unsubscribe;
   }, []);
 
+  // Carrega instrução padrão global se configurada no perfil
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = localStorage.getItem("translatio_default_system_instruction");
+      if (saved && !promptInstructions) {
+        setPromptInstructions(saved);
+      }
+    }
+  }, []);
+
   const loadUserData = async () => {
     const { terms } = await getGlossaryTerms();
     setGlossary(terms);
 
     const { items } = await getTranslationHistory();
     setHistory(items);
+
+    const { groups: userGroups } = await getChatGroups();
+    setGroups(userGroups);
   };
 
-  // Seletor de Arquivos (PDF, Imagens, TEX, DOCX)
+  // Processamento unificado de arquivo selecionado ou arrastado (PDF, Imagens, TEX, DOCX)
+  const processSelectedFile = (file: File) => {
+    if (!file) return;
+
+    // Detecção segura do tipo MIME com fallback para extensão
+    let mimeType = file.type;
+    const nameLower = file.name.toLowerCase();
+    if (!mimeType) {
+      if (nameLower.endsWith(".pdf")) mimeType = "application/pdf";
+      else if (nameLower.endsWith(".tex")) mimeType = "text/plain";
+      else if (nameLower.endsWith(".txt") || nameLower.endsWith(".md")) mimeType = "text/plain";
+      else if (nameLower.endsWith(".png")) mimeType = "image/png";
+      else if (nameLower.endsWith(".jpg") || nameLower.endsWith(".jpeg")) mimeType = "image/jpeg";
+      else if (nameLower.endsWith(".docx"))
+        mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      else mimeType = "application/pdf";
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultStr = reader.result as string;
+      const base64Data = resultStr.split(",")[1];
+      const sizeStr =
+        file.size < 1024 * 1024
+          ? `${(file.size / 1024).toFixed(1)} KB`
+          : `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+
+      setSelectedFile({
+        name: file.name,
+        size: sizeStr,
+        mimeType: mimeType,
+        base64: base64Data,
+      });
+      setInputText("");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Seletor de Arquivos (PDF, Imagens, TEX, DOCX) via clique
   const handlePickDocument = () => {
     if (Platform.OS === "web" && typeof document !== "undefined") {
       const input = document.createElement("input");
@@ -172,22 +204,7 @@ export default function Index() {
       input.onchange = (e: any) => {
         const file = e.target.files?.[0];
         if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-          const resultStr = reader.result as string;
-          const base64Data = resultStr.split(",")[1];
-          const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
-
-          setSelectedFile({
-            name: file.name,
-            size: `${sizeMB} MB`,
-            mimeType: file.type || "application/pdf",
-            base64: base64Data,
-          });
-          setInputText("");
-        };
-        reader.readAsDataURL(file);
+        processSelectedFile(file);
       };
       input.click();
     } else {
@@ -195,7 +212,197 @@ export default function Index() {
     }
   };
 
-  // Dispara o Pipeline Agêntico Multietapas de IA
+  // Remoção segura de arquivo anexado com confirmação em chats pausados
+  const handleRemoveFile = async () => {
+    if (isTranslating) return; // Bloqueado durante a execução do pipeline
+
+    if (isPausedForTerms) {
+      const confirmMsg = t("discardDocConfirm");
+      const confirmed =
+        typeof window !== "undefined" && window.confirm ? window.confirm(confirmMsg) : true;
+      if (!confirmed) return;
+
+      if (activeHistoryId) {
+        await deleteTranslationHistory(activeHistoryId);
+        setActiveHistoryId(null);
+        loadUserData();
+      }
+      setIsPausedForTerms(false);
+      setPipelineProgress(null);
+      setPhase1Data(null);
+      setIdentifiedTerms([]);
+    }
+
+    setSelectedFile(null);
+  };
+
+  // Suporte completo a Drag & Drop nativo de arquivos (PDF, TEX, etc.)
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+
+    let windowDragCounter = 0;
+    let dropzoneDragCounter = 0;
+
+    const isFilesEvent = (e: DragEvent) => {
+      if (!e.dataTransfer || !e.dataTransfer.types) return false;
+      return Array.from(e.dataTransfer.types).includes("Files");
+    };
+
+    // 1. Intercepta eventos na janela para impedir que o navegador abra o arquivo
+    const handleWindowDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+
+    const handleWindowDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      if (isFilesEvent(e)) {
+        windowDragCounter++;
+        setIsWindowDragging(true);
+      }
+    };
+
+    const handleWindowDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      windowDragCounter--;
+      if (windowDragCounter <= 0) {
+        windowDragCounter = 0;
+        setIsWindowDragging(false);
+        setIsDragOverDropzone(false);
+      }
+    };
+
+    const handleWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      windowDragCounter = 0;
+      dropzoneDragCounter = 0;
+      setIsWindowDragging(false);
+      setIsDragOverDropzone(false);
+
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        if (viewMode !== "new-chat") {
+          setViewMode("new-chat");
+          setActiveHistoryId(null);
+        }
+        processSelectedFile(files[0]);
+      }
+    };
+
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("dragenter", handleWindowDragEnter);
+    window.addEventListener("dragleave", handleWindowDragLeave);
+    window.addEventListener("drop", handleWindowDrop);
+
+    // 2. Ouvintes específicos para a Dropzone quando montada
+    const getDropzoneEl = (): HTMLElement | null => {
+      if (dropzoneRef.current) {
+        if (typeof dropzoneRef.current.addEventListener === "function") {
+          return dropzoneRef.current;
+        }
+      }
+      if (typeof document !== "undefined") {
+        return document.getElementById("translatio-dropzone");
+      }
+      return null;
+    };
+
+    const dropEl = getDropzoneEl();
+
+    const handleDropzoneDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isFilesEvent(e)) {
+        dropzoneDragCounter++;
+        setIsDragOverDropzone(true);
+      }
+    };
+
+    const handleDropzoneDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+      setIsDragOverDropzone(true);
+    };
+
+    const handleDropzoneDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzoneDragCounter--;
+      if (dropzoneDragCounter <= 0) {
+        dropzoneDragCounter = 0;
+        setIsDragOverDropzone(false);
+      }
+    };
+
+    const handleDropzoneDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzoneDragCounter = 0;
+      windowDragCounter = 0;
+      setIsDragOverDropzone(false);
+      setIsWindowDragging(false);
+
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        processSelectedFile(files[0]);
+      }
+    };
+
+    if (dropEl) {
+      dropEl.addEventListener("dragenter", handleDropzoneDragEnter);
+      dropEl.addEventListener("dragover", handleDropzoneDragOver);
+      dropEl.addEventListener("dragleave", handleDropzoneDragLeave);
+      dropEl.addEventListener("drop", handleDropzoneDrop);
+    }
+
+    return () => {
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("dragenter", handleWindowDragEnter);
+      window.removeEventListener("dragleave", handleWindowDragLeave);
+      window.removeEventListener("drop", handleWindowDrop);
+
+      if (dropEl) {
+        dropEl.removeEventListener("dragenter", handleDropzoneDragEnter);
+        dropEl.removeEventListener("dragover", handleDropzoneDragOver);
+        dropEl.removeEventListener("dragleave", handleDropzoneDragLeave);
+        dropEl.removeEventListener("drop", handleDropzoneDrop);
+      }
+    };
+  }, [viewMode, selectedFile]);
+
+  // Notificação de segurança e título dinâmico da aba durante a tradução
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+
+    if (isTranslating) {
+      const stepText = pipelineProgress ? `${pipelineProgress.step}/4` : "...";
+      document.title = `⏳ (${stepText}) Traduzindo... | Translatio`;
+    } else if (isPausedForTerms) {
+      document.title = `⏸️ (Pausado: Termos) | Translatio`;
+    } else {
+      document.title = "Translatio - Tradução Científica LaTeX";
+    }
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isTranslating) {
+        e.preventDefault();
+        e.returnValue = "";
+        return "";
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isTranslating, isPausedForTerms, pipelineProgress]);
+
+  // Dispara a Fase 1 do Pipeline Agêntico (Decomposição + Termos)
   const handleStartTranslation = async () => {
     const hasFile = selectedFile !== null;
     const hasText = inputText.trim().length > 0;
@@ -211,23 +418,131 @@ export default function Index() {
     }
 
     setIsTranslating(true);
+    setIsPausedForTerms(false);
 
     const docOriginal = hasFile && selectedFile
       ? `[Documento: ${selectedFile.name} (${selectedFile.size})]`
       : inputText.trim();
 
+    const title = hasFile && selectedFile
+      ? `Doc: ${selectedFile.name.substring(0, 26)}`
+      : docOriginal.split("\n")[0].replace(/[\\[\]{}\\$]/g, "").substring(0, 30) || "Documento Traduzido";
+
     setOriginalFullText(docOriginal);
 
-    // Executa o Pipeline Agêntico (Etapa 1 a 4)
-    const pipelineResult = await runAgenticTranslationPipeline({
+    // Executa Fase 1: Decomposição e Análise de Terminologia
+    const phase1 = await runPipelinePhase1({
       text: hasFile ? undefined : docOriginal,
       fileBase64: hasFile ? selectedFile?.base64 : undefined,
       mimeType: hasFile ? selectedFile?.mimeType : undefined,
       fileName: hasFile ? selectedFile?.name : undefined,
       sourceLang,
       targetLang,
+      onProgress: (progress) => {
+        setPipelineProgress(progress);
+      },
+    });
+
+    if (phase1.error) {
+      setIsTranslating(false);
+      setPipelineProgress(null);
+      if (typeof window !== "undefined" && window.alert) {
+        window.alert(`Erro no Pipeline Agêntico (Fase 1): ${phase1.error}`);
+      } else {
+        Alert.alert("Erro", phase1.error);
+      }
+      return;
+    }
+
+    // Guarda dados da Fase 1
+    const p1Data = {
+      rawCleanContent: phase1.rawCleanContent,
+      formulasCount: phase1.formulasCount,
+      identifiedTerms: phase1.identifiedTerms,
+      docTitle: title,
+    };
+    setPhase1Data(p1Data);
+    setIdentifiedTerms(phase1.identifiedTerms);
+
+    // Se houver termos técnicos identificados, PAUSA para consulta humana (Human-in-the-Loop)
+    if (phase1.identifiedTerms.length > 0) {
+      setIsPausedForTerms(true);
+      setRightOpen(true); // Abre o menu lateral na aba de termos automaticamente
+      setPipelineProgress({
+        step: 2,
+        stepName: "Pausa: Consulta Terminológica (Human-in-the-Loop)",
+        agentRole: "Linguista Computacional Técnico",
+        detail: `Identificamos ${phase1.identifiedTerms.length} termos técnicos. Escolha as traduções desejadas no painel à direita e continue a tradução.`,
+        discoveredTerms: phase1.identifiedTerms.map((t) => t.originalTerm),
+        detectedFormulasCount: phase1.formulasCount,
+        liveLogs: [
+          `Fase 1 concluída: ${phase1.formulasCount} blocos de fórmulas mapeados.`,
+          `⏸️ ${phase1.identifiedTerms.length} termos técnicos pendentes de validação humana...`,
+        ],
+        isPausedForTerms: true,
+      });
+
+      // SALVA O CHAT IMEDIATAMENTE NO HISTÓRICO COM STATUS 'paused_terms'
+      // PARA GARANTIR PERMANÊNCIA MESMO SE O USUÁRIO SAIR DA TELA!
+      try {
+        const { id: newDocId } = await saveTranslationHistory(
+          title,
+          phase1.rawCleanContent,
+          "",
+          sourceLang,
+          targetLang,
+          null,
+          null,
+          "paused_terms",
+          phase1.identifiedTerms,
+          p1Data,
+          promptInstructions
+        );
+        if (newDocId) {
+          setActiveHistoryId(newDocId);
+          await loadUserData();
+        }
+      } catch (e) {
+        console.warn("Aviso ao salvar chat pausado no histórico:", e);
+      }
+    } else {
+      // Se não houver termos ambíguos, prossegue direto para a Fase 2
+      await handleExecutePhase2(phase1.rawCleanContent, phase1.formulasCount, [], title, null);
+    }
+  };
+
+  // Continua o Pipeline Agêntico (Fase 2: Tradução e Validação) aplicando as decisões humanas
+  const handleResumePhase2 = async (skipCustomDecisions = false) => {
+    if (!phase1Data) return;
+    setIsPausedForTerms(false);
+    setIsTranslating(true);
+
+    const userDecisionsToApply = skipCustomDecisions ? [] : identifiedTerms.filter((t) => t.selectedOption);
+    await handleExecutePhase2(
+      phase1Data.rawCleanContent,
+      phase1Data.formulasCount,
+      userDecisionsToApply,
+      phase1Data.docTitle,
+      activeHistoryId
+    );
+  };
+
+  const handleExecutePhase2 = async (
+    rawCleanContent: string,
+    formulasCount: number,
+    decisions: TermDecision[],
+    title: string,
+    existingHistoryId?: string | null
+  ) => {
+    const phase2 = await runPipelinePhase2({
+      rawCleanContent,
+      sourceLang,
+      targetLang,
       glossary,
+      userDecisions: decisions,
       customInstruction: promptInstructions,
+      formulasCount,
+      identifiedTerms,
       onProgress: (progress) => {
         setPipelineProgress(progress);
       },
@@ -235,69 +550,105 @@ export default function Index() {
 
     setIsTranslating(false);
     setPipelineProgress(null);
+    setIsPausedForTerms(false);
 
-    if (pipelineResult.error) {
+    if (phase2.error) {
       if (typeof window !== "undefined" && window.alert) {
-        window.alert(`Erro no Pipeline Agêntico: ${pipelineResult.error}`);
+        window.alert(`Erro no Pipeline Agêntico (Fase 2): ${phase2.error}`);
       } else {
-        Alert.alert("Erro", pipelineResult.error);
+        Alert.alert("Erro", phase2.error);
       }
-    } else {
-      // Garante que o texto original seja sempre a versão completa em LaTeX
-      const fullOriginal = pipelineResult.originalLatex && pipelineResult.originalLatex.trim().length > 10
-        ? pipelineResult.originalLatex
-        : (hasFile ? `\\section{Documento Original}\n${docOriginal}` : docOriginal);
+      return;
+    }
 
-      setOriginalFullText(fullOriginal);
-      setTranslatedFullText(pipelineResult.translatedLatex);
-      setIdentifiedTerms(pipelineResult.identifiedTerms);
-      setViewMode("reading");
-      setRightOpen(true); // Abre o Copiloto com os termos para consulta imediata
+    setOriginalFullText(rawCleanContent);
+    setTranslatedFullText(phase2.translatedLatex);
+    setViewMode("reading");
+    setRightOpen(true);
 
-      try {
-        const title = hasFile && selectedFile
-          ? `Doc: ${selectedFile.name.substring(0, 26)}`
-          : docOriginal.split("\n")[0].replace(/[\\[\]{}\\$]/g, "").substring(0, 30) || "Documento Traduzido";
-
-        await saveTranslationHistory(title, fullOriginal, pipelineResult.translatedLatex, sourceLang, targetLang);
-        loadUserData();
-      } catch (e) {
-        console.warn("Aviso ao salvar histórico:", e);
+    try {
+      const finalTerms = decisions.length > 0 ? decisions : identifiedTerms;
+      if (existingHistoryId) {
+        await updateTranslationHistory(existingHistoryId, {
+          title,
+          originalText: rawCleanContent,
+          translatedText: phase2.translatedLatex,
+          sourceLang,
+          targetLang,
+          status: "completed",
+          identifiedTerms: finalTerms,
+          customInstruction: promptInstructions,
+        });
+      } else {
+        const { id: newId } = await saveTranslationHistory(
+          title,
+          rawCleanContent,
+          phase2.translatedLatex,
+          sourceLang,
+          targetLang,
+          null,
+          null,
+          "completed",
+          finalTerms,
+          null,
+          promptInstructions
+        );
+        if (newId) setActiveHistoryId(newId);
       }
+      await loadUserData();
+    } catch (e) {
+      console.error("[Translatio History] Erro ao salvar histórico:", e);
     }
   };
 
   // Aplica decisão de termo escolhida pelo usuário no chat do Copiloto
   const handleApplyTermDecision = async (term: TermDecision, chosenOption: string) => {
-    // 1. Atualiza estado de termos identificados
-    setIdentifiedTerms((prev) =>
-      prev.map((t) => (t.id === term.id ? { ...t, selectedOption: chosenOption } : t))
+    // 1. Atualiza estado de termos identificados na memória
+    const updatedTerms = identifiedTerms.map((t) =>
+      t.id === term.id ? { ...t, selectedOption: chosenOption } : t
     );
+    setIdentifiedTerms(updatedTerms);
 
-    // 2. Atualiza o código LaTeX em tempo real
+    // 2. Persiste imediatamente a decisão no histórico do chat para permanência total!
+    if (activeHistoryId) {
+      try {
+        await updateTranslationHistory(activeHistoryId, {
+          identifiedTerms: updatedTerms,
+        });
+      } catch (e) {
+        console.warn("Aviso ao salvar decisão de termo no histórico:", e);
+      }
+    }
+
+    // 3. Atualiza o código LaTeX em tempo real (se já traduzido)
+    if (translatedFullText) {
+      try {
+        const updatedLatex = await updateTranslationWithTermDecision(
+          translatedFullText,
+          { ...term, selectedOption: chosenOption },
+          targetLang
+        );
+        setTranslatedFullText(updatedLatex);
+        if (activeHistoryId) {
+          await updateTranslationHistory(activeHistoryId, {
+            translatedText: updatedLatex,
+          });
+        }
+      } catch (e) {
+        console.warn("Erro ao atualizar termo no documento:", e);
+      }
+    }
+
+    // 4. Salva no Glossário permanente
     try {
-      const updatedLatex = await updateTranslationWithTermDecision(
-        translatedFullText,
-        { ...term, selectedOption: chosenOption },
-        targetLang
-      );
-      setTranslatedFullText(updatedLatex);
-
-      // 3. Salva no Glossário permanente
       await addGlossaryTerm(term.originalTerm, chosenOption);
       const { terms } = await getGlossaryTerms();
       setGlossary(terms);
     } catch (e) {
-      console.warn("Erro ao atualizar termo no documento:", e);
+      console.warn("Erro ao atualizar glossário:", e);
     }
   };
 
-  // Carrega exemplo pronto com 1 clique
-  const loadSample = (sample: { title: string; content: string }) => {
-    setSelectedFile(null);
-    setInputText(sample.content);
-    setPromptInstructions("Mantenha o tom formal e preserve todas as estruturas matemáticas.");
-  };
 
   // CRUD Glossário
   const handleAddTerm = async () => {
@@ -321,9 +672,50 @@ export default function Index() {
     setIsSwitchingDoc(true);
     setTimeout(() => {
       setSelectedFile(null);
-      setOriginalFullText(item.originalText);
-      setTranslatedFullText(item.translatedText);
-      setViewMode("reading");
+      setOriginalFullText(item.originalText || "");
+      setTranslatedFullText(item.translatedText || "");
+      setSourceLang(item.sourceLang || "auto");
+      setTargetLang(item.targetLang || "pt-BR");
+      setPromptInstructions(item.customInstruction || "");
+
+      // Restaura todos os termos identificados com as perguntas da IA e opções escolhidas
+      const savedTerms = item.identifiedTerms || [];
+      setIdentifiedTerms(savedTerms);
+
+      if (item.status === "paused_terms") {
+        setIsPausedForTerms(true);
+        setIsTranslating(false);
+        const p1 = item.phase1Data || {
+          rawCleanContent: item.originalText,
+          formulasCount: 0,
+          identifiedTerms: savedTerms,
+          docTitle: item.title,
+        };
+        setPhase1Data(p1);
+
+        setPipelineProgress({
+          step: 2,
+          stepName: "Pausa: Consulta Terminológica (Human-in-the-Loop)",
+          agentRole: "Linguista Computacional Técnico",
+          detail: `Identificamos ${savedTerms.length} termos técnicos. Escolha as traduções desejadas no painel à direita e continue a tradução.`,
+          discoveredTerms: savedTerms.map((t: any) => t.originalTerm),
+          detectedFormulasCount: p1.formulasCount || 0,
+          liveLogs: [
+            `Fase 1 concluída: ${p1.formulasCount || 0} blocos de fórmulas mapeados.`,
+            `⏸️ ${savedTerms.length} termos técnicos pendentes de validação humana...`,
+          ],
+          isPausedForTerms: true,
+        });
+
+        setViewMode("new-chat");
+        setRightOpen(true);
+      } else {
+        setIsPausedForTerms(false);
+        setPhase1Data(null);
+        setPipelineProgress(null);
+        setViewMode("reading");
+      }
+
       setIsSwitchingDoc(false);
     }, 140);
   };
@@ -341,17 +733,91 @@ export default function Index() {
     loadUserData();
   };
 
+  const handleRenameHistory = async (id: string, newTitle: string) => {
+    const { success, error } = await renameTranslationHistory(id, newTitle);
+    if (success) {
+      setHistory((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, title: newTitle } : item))
+      );
+    } else if (error) {
+      alert(error);
+    }
+  };
+
+  const handleCreateGroup = async (name: string) => {
+    const { group, error } = await createChatGroup(name);
+    if (group) {
+      setGroups((prev) => [...prev, group]);
+    } else if (error) {
+      alert(error);
+    }
+  };
+
+  const handleRenameGroup = async (groupId: string, newName: string) => {
+    const { success, error } = await renameChatGroup(groupId, newName, history);
+    if (success) {
+      setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, name: newName } : g)));
+      setHistory((prev) =>
+        prev.map((item) => (item.groupId === groupId ? { ...item, groupName: newName } : item))
+      );
+    } else if (error) {
+      alert(error);
+    }
+  };
+
+  const handleDeleteGroup = async (groupId: string, deleteChatsCascade: boolean) => {
+    const { success, error } = await deleteChatGroup(groupId, deleteChatsCascade, history);
+    if (success) {
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+      if (deleteChatsCascade) {
+        setHistory((prev) => prev.filter((item) => item.groupId !== groupId));
+        if (activeHistoryId && history.find((h) => h.id === activeHistoryId)?.groupId === groupId) {
+          setActiveHistoryId(null);
+          setViewMode("new-chat");
+        }
+      } else {
+        setHistory((prev) =>
+          prev.map((item) =>
+            item.groupId === groupId ? { ...item, groupId: null, groupName: null } : item
+          )
+        );
+      }
+    } else if (error) {
+      alert(error);
+    }
+  };
+
+  const handleAssignChatToGroup = async (
+    chatId: string,
+    groupId: string | null,
+    groupName?: string | null
+  ) => {
+    const { success, error } = await assignChatToGroup(chatId, groupId, groupName);
+    if (success) {
+      setHistory((prev) =>
+        prev.map((item) =>
+          item.id === chatId ? { ...item, groupId: groupId || null, groupName: groupName || null } : item
+        )
+      );
+    } else if (error) {
+      alert(error);
+    }
+  };
+
   const handleLogout = async () => {
     await logoutUser();
     router.replace("/login");
   };
 
   const getSourceLangName = () => {
-    return AVAILABLE_LANGUAGES.find((l) => l.code === sourceLang)?.name || "Detectar idioma";
+    const found = AVAILABLE_LANGUAGES.find((l) => l.code === sourceLang);
+    if (!found || found.code === "auto") return `✨ ${t("detectLanguage")}`;
+    return `${found.flag} ${found.name}`;
   };
 
   const getTargetLangName = () => {
-    return AVAILABLE_LANGUAGES.find((l) => l.code === targetLang)?.name || "Português (PT-BR)";
+    const found = AVAILABLE_LANGUAGES.find((l) => l.code === targetLang);
+    return found ? `${found.flag} ${found.name}` : "🇧🇷 Português (PT-BR)";
   };
 
   return (
@@ -364,17 +830,34 @@ export default function Index() {
       <LMenu
         isOpen={leftOpen}
         history={history}
+        groups={groups}
         activeId={activeHistoryId}
         theme={theme}
+        isTranslating={isTranslating}
+        isPausedForTerms={isPausedForTerms}
+        pipelineStep={pipelineProgress?.step}
         onToggleTheme={handleToggleTheme}
         onSelectHistory={handleSelectHistory}
         onDeleteHistory={handleDeleteHistory}
+        onRenameHistory={handleRenameHistory}
+        onCreateGroup={handleCreateGroup}
+        onRenameGroup={handleRenameGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onAssignChatToGroup={handleAssignChatToGroup}
+        onImportCompleted={loadUserData}
         onNewTranslation={() => {
+          if (isTranslating || isPausedForTerms) {
+            setViewMode("new-chat");
+            return;
+          }
           setActiveHistoryId(null);
           setViewMode("new-chat");
           setInputText("");
           setSelectedFile(null);
-          setPromptInstructions("");
+          const savedPrompt = typeof window !== "undefined" && window.localStorage
+            ? localStorage.getItem("translatio_default_system_instruction") || ""
+            : "";
+          setPromptInstructions(savedPrompt);
           setIdentifiedTerms([]);
         }}
         onLogout={handleLogout}
@@ -416,14 +899,14 @@ export default function Index() {
                   isLight ? "text-neutral-900" : "text-[#e8e8f0]"
                 }`}
               >
-                Novo Chat de Tradução Agêntica
+                {t("heroTitle")}
               </Text>
               <Text
                 className={`text-xs text-center mb-6 ${
                   isLight ? "text-neutral-500" : "text-[#6b6b80]"
                 }`}
               >
-                Extração de layout, análise de terminologia e reconstrução matemática em LaTeX
+                {t("heroSubtitle")}
               </Text>
 
               {/* SELETOR DE IDIOMAS EXPANSÍVEL */}
@@ -494,81 +977,106 @@ export default function Index() {
                           isLight ? "text-neutral-500" : "text-[#6b6b80]"
                         }`}
                       >
-                        {selectedFile.size} • Pronto para pipeline agêntico em LaTeX
+                        {selectedFile.size} •{" "}
+                        {isTranslating
+                          ? t("fileTranslatingStatus")
+                          : isPausedForTerms
+                          ? t("statusPausedTerms")
+                          : t("fileReadyStatus")}
                       </Text>
                     </View>
                   </View>
-                  <TouchableOpacity
-                    className={`p-2 rounded-lg active:scale-95 ${
-                      isLight ? "bg-neutral-100 hover:bg-neutral-200" : "bg-white/[0.05] active:bg-white/[0.1]"
-                    }`}
-                    onPress={() => setSelectedFile(null)}
-                  >
-                    <Feather name="trash-2" size={13} color="#e05a6a" />
-                  </TouchableOpacity>
+
+                  {/* Ações do Arquivo */}
+                  {isTranslating ? (
+                    <View className="flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#6b8cff]/10 border border-[#6b8cff]/25">
+                      <ActivityIndicator size="small" color="#6b8cff" />
+                      <Text className="text-[10px] text-[#6b8cff] font-medium">
+                        {t("fileProcessingBadge")}
+                      </Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      className={`p-2 rounded-lg active:scale-95 transition-all ${
+                        isLight
+                          ? "bg-neutral-100 hover:bg-red-50 hover:border-red-200 border border-transparent"
+                          : "bg-white/[0.05] hover:bg-red-500/10 hover:border-red-500/30 border border-transparent"
+                      }`}
+                      onPress={handleRemoveFile}
+                      accessibilityLabel={t("removeFile")}
+                    >
+                      <Feather name="trash-2" size={13} color="#e05a6a" />
+                    </TouchableOpacity>
+                  )}
                 </View>
               ) : (
-                <TouchableOpacity
-                  className={`w-full rounded-2xl border-2 border-dashed p-8 items-center justify-center mb-4 transition-all duration-200 cursor-pointer ${
-                    isLight
-                      ? "bg-white border-neutral-300 hover:border-blue-400 hover:bg-blue-50/40"
-                      : styles.dropzone
-                  }`}
-                  onPress={handlePickDocument}
+                <View
+                  nativeID="translatio-dropzone"
+                  ref={dropzoneRef}
+                  className="w-full mb-4"
                 >
-                  <View
-                    className={`w-11 h-11 rounded-xl items-center justify-center mb-3 ${
-                      isLight ? "bg-blue-50" : styles.dropzoneIconBox
+                  <TouchableOpacity
+                    className={`w-full rounded-2xl border-2 border-dashed p-8 items-center justify-center transition-all duration-200 cursor-pointer ${
+                      isDragOverDropzone
+                        ? isLight
+                          ? "bg-blue-100/70 border-blue-500 scale-[1.01] shadow-lg shadow-blue-500/20"
+                          : "bg-[#6b8cff]/15 border-[#6b8cff] scale-[1.01] shadow-lg shadow-[#6b8cff]/25"
+                        : isWindowDragging
+                        ? isLight
+                          ? "bg-blue-50/60 border-blue-400 animate-pulse"
+                          : "bg-white/[0.04] border-[#6b8cff]/60 animate-pulse"
+                        : isLight
+                        ? "bg-white border-neutral-300 hover:border-blue-400 hover:bg-blue-50/40"
+                        : styles.dropzone
                     }`}
+                    onPress={handlePickDocument}
+                    activeOpacity={0.8}
                   >
-                    <Feather name="upload" size={18} color="#6b8cff" />
-                  </View>
-                  <Text
-                    className={`font-medium text-xs text-center ${
-                      isLight ? "text-neutral-700" : styles.dropzoneText
-                    }`}
-                  >
-                    Clique para selecionar um documento (PDF, Imagem, .tex)
-                  </Text>
-                  <Text
-                    className={`text-[10px] mt-0.5 text-center ${
-                      isLight ? "text-neutral-500" : styles.dropzoneSubtext
-                    }`}
-                  >
-                    A IA executará o pipeline multietapas de reconstrução em LaTeX
-                  </Text>
-                </TouchableOpacity>
+                    <View className="pointer-events-none items-center justify-center">
+                      <View
+                        className={`w-11 h-11 rounded-xl items-center justify-center mb-3 transition-transform duration-200 ${
+                          isDragOverDropzone ? "scale-110" : ""
+                        } ${
+                          isLight
+                            ? isDragOverDropzone
+                              ? "bg-blue-200/80"
+                              : "bg-blue-50"
+                            : isDragOverDropzone
+                            ? "bg-[#6b8cff]/30"
+                            : styles.dropzoneIconBox
+                        }`}
+                      >
+                        <Feather
+                          name={isDragOverDropzone ? "arrow-down" : "upload"}
+                          size={isDragOverDropzone ? 20 : 18}
+                          color="#6b8cff"
+                        />
+                      </View>
+                      <Text
+                        className={`font-semibold text-xs text-center ${
+                          isDragOverDropzone
+                            ? "text-[#6b8cff]"
+                            : isLight
+                            ? "text-neutral-700"
+                            : styles.dropzoneText
+                        }`}
+                      >
+                        {isDragOverDropzone ? t("dropzoneActive") : t("dropzoneTitle")}
+                      </Text>
+                      <Text
+                        className={`text-[10px] mt-0.5 text-center ${
+                          isLight ? "text-neutral-500" : styles.dropzoneSubtext
+                        }`}
+                      >
+                        {isDragOverDropzone
+                          ? t("dropzoneFormats")
+                          : `${t("dropzoneBrowse")} • ${t("dropzoneFormats")}`}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
               )}
 
-              {/* BOTÕES DE EXEMPLO RÁPIDO */}
-              <Text
-                className={`text-[10px] uppercase tracking-widest mb-2 font-medium ${
-                  isLight ? "text-neutral-500" : "text-[#6b6b80]"
-                }`}
-              >
-                Ou teste com um dos exemplos acadêmicos prontos:
-              </Text>
-              <View className={styles.sampleButtonsRow}>
-                {SAMPLE_DOCS.map((s, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    className={`px-3 py-1.5 rounded-lg border active:scale-95 transition-all ${
-                      isLight
-                        ? "bg-white border-neutral-200 hover:bg-neutral-100"
-                        : styles.sampleBtn
-                    }`}
-                    onPress={() => loadSample(s)}
-                  >
-                    <Text
-                      className={`text-[11px] ${
-                        isLight ? "text-neutral-700" : styles.sampleBtnText
-                      }`}
-                    >
-                      {s.title}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
 
               {/* CONSOLE VISUAL DE PIPELINE AGÊNTICO EM TEMPO REAL */}
               {isTranslating && pipelineProgress && (
@@ -597,6 +1105,24 @@ export default function Index() {
                         Etapa {pipelineProgress.step} de 4 ({pipelineProgress.step * 25}%)
                       </Text>
                     </View>
+                  </View>
+
+                  {/* Aviso de Permanência na Aba */}
+                  <View
+                    className={`flex-row items-center gap-2.5 px-3 py-2 rounded-xl mb-3.5 border ${
+                      isLight
+                        ? "bg-blue-50/80 border-blue-200"
+                        : "bg-blue-500/10 border-[#6b8cff]/20"
+                    }`}
+                  >
+                    <Feather name="info" size={13} color="#6b8cff" />
+                    <Text
+                      className={`text-[11px] flex-1 leading-4 ${
+                        isLight ? "text-blue-900" : "text-[#c8d4ff]"
+                      }`}
+                    >
+                      <Text className="font-semibold">{t("keepTabOpenNotice")}</Text>
+                    </Text>
                   </View>
 
                   {/* 4-Node Visual Stepper (Agente 1 a 4) */}
@@ -732,6 +1258,61 @@ export default function Index() {
                       </View>
                     </View>
                   )}
+
+                  {/* Banner de Pausa Human-in-the-Loop com Botões de Ação */}
+                  {isPausedForTerms && (
+                    <View
+                      className={`rounded-xl p-4 mt-3 border animate-smooth-pop ${
+                        isLight
+                          ? "bg-blue-50/90 border-blue-200"
+                          : "bg-[#6b8cff]/15 border-[#6b8cff]/40 shadow-lg shadow-[#6b8cff]/10"
+                      }`}
+                    >
+                      <View className="flex-row items-center gap-2 mb-2">
+                        <View className="w-5 h-5 rounded-full bg-[#6b8cff] items-center justify-center">
+                          <Feather name="help-circle" size={12} color="#ffffff" />
+                        </View>
+                        <Text className="text-xs font-bold text-[#6b8cff]">
+                          Consulta Terminológica Interativa (Human-in-the-Loop)
+                        </Text>
+                      </View>
+                      <Text
+                        className={`text-xs leading-relaxed mb-3.5 ${
+                          isLight ? "text-neutral-700" : "text-[#c8c8d8]"
+                        }`}
+                      >
+                        O Agente Linguista pausou a tradução para consultar você sobre os termos técnicos encontrados. O painel à direita foi aberto para você escolher as traduções preferidas. Quando terminar ou se preferir o padrão, clique para continuar:
+                      </Text>
+                      <View className="flex-row items-center gap-2">
+                        <TouchableOpacity
+                          className="flex-1 py-2.5 px-3.5 rounded-xl bg-[#6b8cff] hover:bg-[#5b7ce8] active:scale-95 transition-all flex-row items-center justify-center gap-2 shadow-md shadow-[#6b8cff]/25"
+                          onPress={() => handleResumePhase2(false)}
+                        >
+                          <Text className="text-white text-xs font-bold">
+                            Continuar Tradução com minhas Decisões
+                          </Text>
+                          <Feather name="arrow-right" size={13} color="#ffffff" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          className={`py-2.5 px-3.5 rounded-xl border active:scale-95 transition-all ${
+                            isLight
+                              ? "bg-white border-neutral-300 hover:bg-neutral-100"
+                              : "bg-white/[0.06] border-white/10 hover:bg-white/[0.1]"
+                          }`}
+                          onPress={() => handleResumePhase2(true)}
+                        >
+                          <Text
+                            className={`text-xs font-medium ${
+                              isLight ? "text-neutral-700" : "text-[#c8c8d8]"
+                            }`}
+                          >
+                            Usar Padrão
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -749,8 +1330,8 @@ export default function Index() {
                   }`}
                   placeholder={
                     selectedFile
-                      ? "Instruções adicionais para a IA (ex: 'Converta tabelas para longtable', 'Tom estritamente acadêmico')..."
-                      : "Ou digite/cole seu texto técnico ou LaTeX aqui..."
+                      ? t("customInstructions")
+                      : t("pasteOrType")
                   }
                   placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
                   value={selectedFile ? promptInstructions : inputText}
@@ -771,19 +1352,29 @@ export default function Index() {
                       isLight ? "text-neutral-400" : "text-[#6b6b80]"
                     }`}
                   >
-                    {selectedFile ? "Pipeline Agêntico Multimodal" : "Pipeline Agêntico Texto / LaTeX"}
+                    {t("pipelineTitle")}
                   </Text>
                   <TouchableOpacity
-                    className={isTranslating ? styles.translateBtnDisabled : styles.translateBtn}
+                    className={
+                      isTranslating || isPausedForTerms
+                        ? styles.translateBtnDisabled
+                        : styles.translateBtn
+                    }
                     onPress={handleStartTranslation}
-                    disabled={isTranslating}
+                    disabled={isTranslating || isPausedForTerms}
                   >
                     {isTranslating ? (
                       <ActivityIndicator size="small" color="#ffffff" />
                     ) : (
                       <>
                         <Feather name="send" size={12} color="#ffffff" />
-                        <Text className={styles.translateBtnText}>Traduzir com IA Agêntica</Text>
+                        <Text className="text-white text-xs font-semibold">
+                          {isPausedForTerms
+                            ? "Pausado: Escolha os termos acima"
+                            : isTranslating
+                            ? t("translating")
+                            : t("startTranslation")}
+                        </Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -816,13 +1407,14 @@ export default function Index() {
                         : styles.pillTabText
                     }
                   >
-                    Arquivo Traduzido
+                    {t("tabTranslated")}
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   className={docTab === "split" ? styles.pillTabActive : styles.pillTabIconBtn}
                   onPress={() => setDocTab("split")}
+                  accessibilityLabel={t("tabSplit")}
                 >
                   <Feather
                     name="columns"
@@ -844,7 +1436,7 @@ export default function Index() {
                         : styles.pillTabText
                     }
                   >
-                    Arquivo Original
+                    {t("tabOriginal")}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -902,6 +1494,59 @@ export default function Index() {
                 />
               </View>
             </View>
+          </View>
+        )}
+
+        {/* BARRA FLUTUANTE DE TRADUÇÃO EM SEGUNDO PLANO (QUANDO NAVEGANDO FORA DO NOVO CHAT) */}
+        {viewMode !== "new-chat" && (isTranslating || isPausedForTerms) && (
+          <View
+            className={`absolute bottom-6 self-center z-50 flex-row items-center gap-3 py-2.5 px-4 rounded-2xl shadow-2xl border backdrop-blur-md ${
+              isPausedForTerms
+                ? isLight
+                  ? "bg-amber-50/95 border-amber-300 shadow-amber-500/20"
+                  : "bg-[#2a1d0f]/95 border-amber-500/40 shadow-black/80"
+                : isLight
+                ? "bg-white/95 border-blue-300 shadow-blue-500/20"
+                : "bg-[#11162b]/95 border-[#6b8cff]/40 shadow-black/80"
+            }`}
+          >
+            <View className="flex-row items-center gap-2">
+              {isTranslating ? (
+                <ActivityIndicator size="small" color="#6b8cff" />
+              ) : (
+                <Feather name="pause-circle" size={15} color="#f59e0b" />
+              )}
+              <View>
+                <Text
+                  className={`text-xs font-bold ${
+                    isPausedForTerms
+                      ? "text-amber-500"
+                      : isLight
+                      ? "text-blue-900"
+                      : "text-[#6b8cff]"
+                  }`}
+                >
+                  {isPausedForTerms
+                    ? t("pausedTermsBtn")
+                    : `${t("backgroundTranslatingNotice")} (${pipelineProgress?.step || 1}/4)`}
+                </Text>
+                <Text
+                  className={`text-[10px] ${
+                    isLight ? "text-neutral-500" : "text-[#8888a0]"
+                  }`}
+                >
+                  {t("keepTabOpenNotice")}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              className="py-1.5 px-3 rounded-xl bg-[#6b8cff] hover:bg-[#5b7ce8] active:scale-95 transition-all shadow-sm flex-row items-center gap-1.5"
+              onPress={() => setViewMode("new-chat")}
+            >
+              <Text className="text-white text-xs font-semibold">{t("viewLiveProgress")}</Text>
+              <Feather name="arrow-right" size={12} color="#ffffff" />
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -1094,14 +1739,14 @@ export default function Index() {
                   isLight ? "text-neutral-900" : "text-[#e8e8f0]"
                 }`}
               >
-                {showLangModal === "source" ? "Selecionar Idioma de Origem" : "Selecionar Idioma de Destino"}
+                {showLangModal === "source" ? t("selectSourceLangTitle") : t("selectTargetLangTitle")}
               </Text>
               <TouchableOpacity onPress={() => setShowLangModal(null)}>
                 <Feather name="x" size={14} color={isLight ? "#9ca3af" : "#6b6b80"} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView className="max-h-72">
+            <ScrollView className="max-h-80">
               {AVAILABLE_LANGUAGES.filter(
                 (l) => showLangModal === "source" || l.code !== "auto"
               ).map((lang) => {
@@ -1112,8 +1757,12 @@ export default function Index() {
                 return (
                   <TouchableOpacity
                     key={lang.code}
-                    className={`flex-row items-center justify-between p-3 rounded-lg mb-1 active:scale-[0.98] transition-all ${
-                      isLight ? "hover:bg-neutral-100" : "hover:bg-white/[0.06]"
+                    className={`flex-row items-center justify-between p-2.5 rounded-xl mb-1 active:scale-[0.98] transition-all ${
+                      isActive
+                        ? "bg-[#6b8cff]/15 border border-[#6b8cff]/40"
+                        : isLight
+                        ? "hover:bg-neutral-100 border border-transparent"
+                        : "hover:bg-white/[0.06] border border-transparent"
                     }`}
                     onPress={() => {
                       if (showLangModal === "source") setSourceLang(lang.code);
@@ -1121,17 +1770,20 @@ export default function Index() {
                       setShowLangModal(null);
                     }}
                   >
-                    <Text
-                      className={
-                        isActive
-                          ? styles.langOptionActiveText
-                          : isLight
-                          ? "text-neutral-800 text-xs font-medium"
-                          : styles.langOptionText
-                      }
-                    >
-                      {lang.name}
-                    </Text>
+                    <View className="flex-row items-center gap-2.5">
+                      <Text className="text-base">{lang.flag}</Text>
+                      <Text
+                        className={
+                          isActive
+                            ? styles.langOptionActiveText
+                            : isLight
+                            ? "text-neutral-800 text-xs font-medium"
+                            : styles.langOptionText
+                        }
+                      >
+                        {lang.name}
+                      </Text>
+                    </View>
                     {isActive && <Feather name="check" size={12} color="#6b8cff" />}
                   </TouchableOpacity>
                 );

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import katex from "katex";
+import { useLanguage } from "../context/LanguageContext";
 
 interface LatexViewerProps {
   latexCode: string;
@@ -20,6 +21,7 @@ export default function LatexViewer({
   theme = "dark",
 }: LatexViewerProps) {
   const isLight = theme === "light";
+  const { t } = useLanguage();
   const [viewMode, setViewMode] = useState<"page-light" | "page-dark" | "code">("page-light");
   const [copied, setCopied] = useState(false);
 
@@ -169,7 +171,7 @@ export default function LatexViewer({
                   : "bg-transparent"
               }`}
               onPress={() => setViewMode("page-light")}
-              title="Página A4 (Estilo PDF)"
+              accessibilityLabel={t("viewModePdf")}
             >
               <Feather
                 name="file"
@@ -185,7 +187,7 @@ export default function LatexViewer({
                     : "text-[#6b6b80]"
                 }`}
               >
-                Página PDF
+                {t("viewModePdf")}
               </Text>
             </TouchableOpacity>
 
@@ -196,7 +198,7 @@ export default function LatexViewer({
                   : "bg-transparent"
               }`}
               onPress={() => setViewMode("page-dark")}
-              title="Modo Escuro Integrado"
+              accessibilityLabel={t("viewModeDark")}
             >
               <Feather
                 name="moon"
@@ -212,7 +214,7 @@ export default function LatexViewer({
                     : "text-[#6b6b80]"
                 }`}
               >
-                Dark
+                {t("viewModeDark")}
               </Text>
             </TouchableOpacity>
 
@@ -223,7 +225,7 @@ export default function LatexViewer({
                   : "bg-transparent"
               }`}
               onPress={() => setViewMode("code")}
-              title="Código Fonte LaTeX"
+              accessibilityLabel={t("viewModeTex")}
             >
               <Feather
                 name="code"
@@ -239,7 +241,7 @@ export default function LatexViewer({
                     : "text-[#6b6b80]"
                 }`}
               >
-                .tex
+                {t("viewModeTex")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -252,7 +254,7 @@ export default function LatexViewer({
                 : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08]"
             }`}
             onPress={handleCopy}
-            title="Copiar Código .tex"
+            accessibilityLabel={copied ? t("codeCopied") : t("copyCode")}
           >
             <Feather
               name={copied ? "check" : "copy"}
@@ -269,7 +271,7 @@ export default function LatexViewer({
                 : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08]"
             }`}
             onPress={handleDownloadTex}
-            title="Baixar arquivo .tex compilável"
+            accessibilityLabel={t("downloadTex")}
           >
             <Feather name="download" size={10} color={isLight ? "#6b7280" : "#a0a0b8"} />
             <Text
@@ -285,7 +287,7 @@ export default function LatexViewer({
           <TouchableOpacity
             className="flex-row items-center px-2.5 py-1.5 rounded-lg bg-[#6b8cff]/15 border border-[#6b8cff]/30 hover:bg-[#6b8cff]/25 active:scale-90 transition-all"
             onPress={handlePrintPDF}
-            title="Exportar como PDF Vetorial"
+            accessibilityLabel={t("printPdf")}
           >
             <Feather name="printer" size={10} color="#6b8cff" />
             <Text className="text-[#6b8cff] text-[9px] font-bold ml-1">PDF</Text>
@@ -473,14 +475,21 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
 
   const footnotes: string[] = [];
 
-  // 1. Limpeza de Preâmbulos Técnicos e Pacotes de Configuração
+  // 0. Preservação de Chaves Escapadas (\{ e \})
   let clean = latex
+    .replace(/\\\{/g, "___LBRACE___")
+    .replace(/\\\}/g, "___RBRACE___");
+
+  // 1. Limpeza de Preâmbulos Técnicos e Pacotes de Configuração
+  clean = clean
     .replace(/\\documentclass(\[[^\]]*\])?\{[^}]+\}/g, "")
     .replace(/\\usepackage(\[[^\]]*\])?\{[^}]+\}/g, "")
     .replace(/\\geometry(\[[^\]]*\])?\{[^}]+\}/gi, "")
     .replace(/\\pagestyle\{[^}]+\}/gi, "")
     .replace(/\\thispagestyle\{[^}]+\}/gi, "")
     .replace(/\\setlength\{[^}]+\}\{[^}]+\}/gi, "")
+    .replace(/\\addtolength\{[^}]+\}\{[^}]+\}/gi, "")
+    .replace(/\\setcounter\{[^}]+\}\{[^}]+\}/gi, "")
     .replace(/\\begin\{document\}/gi, "")
     .replace(/\\end\{document\}/gi, "")
     .replace(/\\maketitle/gi, "")
@@ -546,19 +555,20 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
     return renderMathSafely(formula, false);
   });
 
-  // 6. Sanitização de Espaçamentos TeX e Quebras de Linha (\vskip, \hskip, \vspace, \\, \newline)
+  // 6. Sanitização de Espaçamentos TeX e Quebras de Linha (consome [1em], [0.5cm], etc.)
   clean = clean
+    .replace(/\\\\(?:\s*\[[^\]]*\])?/g, "<br />") // Converte \\ ou \\[1em] ou \\[12pt] em <br /> sem deixar [1em]
     .replace(/\\(?:v|h)skip\s*([0-9.]+(?:em|ex|pt|cm|mm|in)?)?/gi, "<div style='height:12px;'></div>")
     .replace(/\\kern\s*([0-9.]+(?:em|ex|pt|cm|mm|in)?)?/gi, "&nbsp;")
-    .replace(/\\vspace\*?\{[^}]+\}/gi, "<div style='height:12px;'></div>")
-    .replace(/\\hspace\*?\{[^}]+\}/gi, "&nbsp;&nbsp;")
+    .replace(/\\vspace\*?(?:\{[^}]*\}|\[[^\]]*\])/gi, "<div style='height:12px;'></div>")
+    .replace(/\\hspace\*?(?:\{[^}]*\}|\[[^\]]*\])/gi, "&nbsp;&nbsp;")
     .replace(/\\smallskip/gi, "<div style='height:6px;'></div>")
     .replace(/\\medskip/gi, "<div style='height:12px;'></div>")
     .replace(/\\bigskip/gi, "<div style='height:20px;'></div>")
     .replace(/\\noindent\s*/gi, "")
-    .replace(/\\newline|\\par\s*/gi, "<br />")
-    .replace(/\\\\/g, "<br />") // Converte quebras de linha \\ em <br />
-    .replace(/\\newpage|\\clearpage/gi, `<hr style="margin:24px 0;border:0;border-top:1px dashed ${isDark ? '#333' : '#ccc'};" />`);
+    .replace(/\\newline|\\par\b/gi, "<br /><br />")
+    .replace(/\\newpage|\\clearpage/gi, `<hr style="margin:24px 0;border:0;border-top:1px dashed ${isDark ? '#333' : '#ccc'};" />`)
+    .replace(/\[\s*[0-9.]+\s*(?:em|ex|pt|cm|mm|in)\s*\]/gi, ""); // Remove dimensões órfãs como [1em]
 
   // 7. Sanitização de Ambientes de Alinhamento e Caixas de Texto
   clean = clean
@@ -571,17 +581,37 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
     .replace(/\\begin\{abstract\}/gi, `<div style="margin:20px 24px;padding:12px 18px;background:${isDark ? 'rgba(255,255,255,0.03)' : '#fcfcfc'};border-left:3px solid ${isDark ? '#6b8cff' : '#1a56db'};font-size:12px;line-height:1.6;"><strong style="display:block;text-align:center;margin-bottom:6px;font-size:12px;letter-spacing:0.05em;text-transform:uppercase;">Resumo / Abstract</strong>`)
     .replace(/\\end\{abstract\}/gi, `</div>`);
 
-  // 8. Modificadores Tipográficos Clássicos
+  // 8. Modificadores Tipográficos em Blocos Enquadrados com Chaves
   clean = clean
-    .replace(/\\large\s*\\bf\s*/gi, "<strong style='font-size:16px;'>")
-    .replace(/\\Large\s*\\bf\s*/gi, "<strong style='font-size:18px;'>")
-    .replace(/\\large/gi, "<span style='font-size:15px;'>")
-    .replace(/\\Large/gi, "<span style='font-size:17px;'>")
-    .replace(/\\small\s*/gi, "<span style='font-size:11.5px;color:${isDark ? '#a0a0b8' : '#555'};'>")
-    .replace(/\\footnotesize\s*/gi, "<span style='font-size:10.5px;color:${isDark ? '#8888a0' : '#666'};'>")
-    .replace(/\\tiny\s*/gi, "<span style='font-size:9.5px;'>")
-    .replace(/\\bf\s+/gi, "<strong>")
-    .replace(/\\it\s+/gi, "<em>");
+    .replace(/\{\s*\\(?:Large|LARGE)\s*\\bfseries\s+([\s\S]*?)\}/gi, "<strong style='font-size:18px;line-height:1.4;'>$1</strong>")
+    .replace(/\{\s*\\bfseries\s*\\(?:Large|LARGE)\s+([\s\S]*?)\}/gi, "<strong style='font-size:18px;line-height:1.4;'>$1</strong>")
+    .replace(/\{\s*\\large\s*\\bfseries\s+([\s\S]*?)\}/gi, "<strong style='font-size:16px;line-height:1.4;'>$1</strong>")
+    .replace(/\{\s*\\bfseries\s*\\large\s+([\s\S]*?)\}/gi, "<strong style='font-size:16px;line-height:1.4;'>$1</strong>")
+    .replace(/\{\s*\\bfseries\s+([\s\S]*?)\}/gi, "<strong>$1</strong>")
+    .replace(/\{\s*\\itshape\s+([\s\S]*?)\}/gi, "<em>$1</em>")
+    .replace(/\{\s*\\scshape\s+([\s\S]*?)\}/gi, "<span style='font-variant:small-caps;'>$1</span>")
+    .replace(/\{\s*\\ttfamily\s+([\s\S]*?)\}/gi, "<code>$1</code>")
+    .replace(/\{\s*\\small\s+([\s\S]*?)\}/gi, `<span style="font-size:11.5px;color:${isDark ? '#a0a0b8' : '#555'};">$1</span>`)
+    .replace(/\{\s*\\footnotesize\s+([\s\S]*?)\}/gi, `<span style="font-size:10.5px;color:${isDark ? '#8888a0' : '#666'};">$1</span>`)
+    .replace(/\{\s*\\centering\s+([\s\S]*?)\}/gi, "<div style='text-align:center;'>$1</div>");
+
+  // Modificadores Tipográficos Livres (com limites de palavra \b para não truncar \bfseries)
+  clean = clean
+    .replace(/\\bfseries\b/gi, "<strong>")
+    .replace(/\\mdseries\b/gi, "</strong>")
+    .replace(/\\itshape\b/gi, "<em>")
+    .replace(/\\upshape\b/gi, "</em>")
+    .replace(/\\scshape\b/gi, "<span style='font-variant:small-caps;'>")
+    .replace(/\\centering\b/gi, "<div style='text-align:center;'>")
+    .replace(/\\raggedright\b/gi, "<div style='text-align:left;'>")
+    .replace(/\\raggedleft\b/gi, "<div style='text-align:right;'>")
+    .replace(/\\Large\b/gi, "<span style='font-size:17px;'>")
+    .replace(/\\large\b/gi, "<span style='font-size:15px;'>")
+    .replace(/\\small\b/gi, `<span style="font-size:11.5px;color:${isDark ? '#a0a0b8' : '#555'};">`)
+    .replace(/\\footnotesize\b/gi, `<span style="font-size:10.5px;color:${isDark ? '#8888a0' : '#666'};">`)
+    .replace(/\\tiny\b/gi, "<span style='font-size:9.5px;'>")
+    .replace(/\\bf\b\s*/gi, "<strong>")
+    .replace(/\\it\b\s*/gi, "<em>");
 
   // 9. Títulos, Autores e Seções Acadêmicas
   clean = clean.replace(
@@ -622,27 +652,55 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
     };">$1</h4>\n\n`
   );
 
-  // 10. Caracteres e Símbolos Especiais em LaTeX
+  // 10. Caracteres, Acentuação e Símbolos Especiais em LaTeX
   clean = clean
     .replace(/\\textbf\{([^}]+)\}/g, "<strong>$1</strong>")
     .replace(/\\textit\{([^}]+)\}/g, "<em>$1</em>")
     .replace(/\\emph\{([^}]+)\}/g, "<em>$1</em>")
     .replace(/\\underline\{([^}]+)\}/g, "<u>$1</u>")
+    .replace(/\\textsc\{([^}]+)\}/g, "<span style='font-variant:small-caps;'>$1</span>")
+    .replace(/\\texttt\{([^}]+)\}/g, "<code>$1</code>")
     .replace(/\\cite\{([^}]+)\}/g, `<span style="color:${isDark ? "#6b8cff" : "#1a56db"};font-size:11px;">[$1]</span>`)
     .replace(/\\ref\{([^}]+)\}/g, `<span style="color:${isDark ? "#6b8cff" : "#1a56db"};font-weight:500;">$1</span>`)
     .replace(/\\label\{([^}]+)\}/g, "")
+    // Acentos LaTeX
+    .replace(/\\~\{?a\}?/g, "ã").replace(/\\~\{?A\}?/g, "Ã")
+    .replace(/\\~\{?o\}?/g, "õ").replace(/\\~\{?O\}?/g, "Õ")
+    .replace(/\\~\{?n\}?/g, "ñ").replace(/\\~\{?N\}?/g, "Ñ")
+    .replace(/\\\'\{?a\}?/g, "á").replace(/\\\'\{?e\}?/g, "é").replace(/\\\'\{?i\}?/g, "í").replace(/\\\'\{?o\}?/g, "ó").replace(/\\\'\{?u\}?/g, "ú")
+    .replace(/\\\'\{?A\}?/g, "Á").replace(/\\\'\{?E\}?/g, "É").replace(/\\\'\{?I\}?/g, "Í").replace(/\\\'\{?O\}?/g, "Ó").replace(/\\\'\{?U\}?/g, "Ú")
+    .replace(/\\\`\{?a\}?/g, "à").replace(/\\\`\{?A\}?/g, "À")
+    .replace(/\\\^\{?a\}?/g, "â").replace(/\\\^\{?e\}?/g, "ê").replace(/\\\^\{?o\}?/g, "ô")
+    .replace(/\\\^\{?A\}?/g, "Â").replace(/\\\^\{?E\}?/g, "Ê").replace(/\\\^\{?O\}?/g, "Ô")
+    .replace(/\\\"a/g, "ä").replace(/\\\"o/g, "ö").replace(/\\\"u/g, "ü")
+    .replace(/\\\"A/g, "Ä").replace(/\\\"O/g, "Ö").replace(/\\\"U/g, "Ü")
+    .replace(/\\ss\b/g, "ß")
+    // Tios isolados do LaTeX (espaço insecável) convertidos em &nbsp;
+    .replace(/~/g, "&nbsp;")
     .replace(/\\%/g, "%")
     .replace(/\\&/g, "&")
     .replace(/\\S\s*([0-9]+)/g, "§ $1")
     .replace(/\\S/g, "§")
-    .replace(/\\"a/g, "ä").replace(/\\"o/g, "ö").replace(/\\"u/g, "ü")
-    .replace(/\\"A/g, "Ä").replace(/\\"O/g, "Ö").replace(/\\"U/g, "Ü")
-    .replace(/\\ss/g, "ß")
     .replace(/\\dots/g, "...")
     .replace(/---/g, "—").replace(/--/g, "–")
     .replace(/``/g, "“").replace(/''/g, "”");
 
-  // 11. Listas (itemize / enumerate)
+  // 11. Limpeza de Chaves e Contrabarras Estruturais Órfãs (Desempacota {texto} usado para escopo)
+  for (let iter = 0; iter < 4; iter++) {
+    const beforeUnpack = clean;
+    clean = clean.replace(/(^|[^\\<a-zA-Z0-9])\{([^{}]+)\}/g, "$1$2");
+    if (clean === beforeUnpack) break;
+  }
+  // Remove quaisquer chaves órfãs residuais que não foram escapadas
+  clean = clean.replace(/(^|[^\\])[\{\}]/g, "$1");
+
+  // Restaura chaves que foram intencionalmente escapadas (\{ e \})
+  clean = clean.replace(/___LBRACE___/g, "{").replace(/___RBRACE___/g, "}");
+
+  // Limpeza de contrabarras órfãs residuais soltas no texto
+  clean = clean.replace(/\\(?=[^a-zA-Z0-9<>&_])/g, "");
+
+  // 12. Listas (itemize / enumerate)
   clean = clean.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g, (_, items) => {
     const listItems = items
       .split("\\item")
@@ -663,7 +721,7 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
     return `\n\n<ol style="margin:12px 0 16px 28px;list-style-type:decimal;">${listItems}</ol>\n\n`;
   });
 
-  // 12. Parágrafos Estruturados
+  // 13. Parágrafos Estruturados
   const blocks = clean.split(/\n\s*\n/);
   const htmlBlocks = blocks.map((block) => {
     const trimmed = block.trim();

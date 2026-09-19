@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { menuStyles as styles } from "../styles/menuStyles";
 import { sendCopilotMessage } from "../controllers/aiController";
 import { TermDecision } from "../controllers/agenticPipelineController";
+import { useLanguage } from "../context/LanguageContext";
 
 interface ChatMessage {
   id: string;
@@ -34,12 +35,13 @@ export default function RMenu({
   onApplyTermDecision,
 }: RMenuProps) {
   const isLight = theme === "light";
+  const { t } = useLanguage();
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "1",
       role: "model",
-      text: "Olá! Sou seu Copiloto de Tradução Científica e LaTeX. Posso esclarecer dúvidas, ajustar o tom formal ou modificar termos em tempo real.",
+      text: t("copilotWelcome"),
       type: "text",
     },
   ]);
@@ -182,7 +184,7 @@ export default function RMenu({
                     : "text-[#6b6b80]"
                 }`}
               >
-                Chat Copiloto
+                {t("tabChat")}
               </Text>
             </TouchableOpacity>
 
@@ -203,7 +205,7 @@ export default function RMenu({
                     : "text-[#6b6b80]"
                 }`}
               >
-                Termos ({identifiedTerms.length})
+                {t("tabTerms", { count: identifiedTerms.length })}
               </Text>
               {identifiedTerms.length > 0 && (
                 <View className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -216,10 +218,10 @@ export default function RMenu({
             className={`p-2 rounded-lg border active:scale-95 transition-all ${
               isLight
                 ? "bg-white border-neutral-200 hover:bg-neutral-100"
-                : "bg-white/[0.05] border-white/[0.07] hover:bg-white/[0.08]"
+                : "bg-white/[0.05] border-white/[0.06] hover:bg-white/[0.08]"
             }`}
             onPress={onOpenGlossary}
-            title="Abrir Glossário"
+            accessibilityLabel={t("glossaryTitle")}
           >
             <Feather name="book-open" size={13} color="#6b8cff" />
           </TouchableOpacity>
@@ -351,12 +353,12 @@ export default function RMenu({
                     >
                       "{term.originalTerm}"
                     </Text>
-                    {term.selectedOption && (
+                    {term.selectedOption ? (
                       <View className="flex-row items-center gap-1 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
                         <Feather name="check" size={10} color="#10b981" />
                         <Text className="text-emerald-500 text-[9px] font-medium">Decidido</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
 
                   {/* Contexto no Documento */}
@@ -403,7 +405,7 @@ export default function RMenu({
                           >
                             {opt}
                           </Text>
-                          {isSelected && <Feather name="check" size={11} color="#6b8cff" />}
+                          {isSelected ? <Feather name="check" size={11} color="#6b8cff" /> : null}
                         </TouchableOpacity>
                       );
                     })}

@@ -28,6 +28,7 @@ export interface AgenticPipelineProgress {
   liveLogs: string[];
   discoveredTerms?: string[];
   detectedFormulasCount?: number;
+  isPausedForTerms?: boolean;
 }
 
 export interface AgenticPipelineResult {
@@ -198,7 +199,7 @@ Retorne APENAS o array JSON válido sem texto fora do JSON.`;
         suggestedOptions: Array.isArray(item.suggestedOptions) && item.suggestedOptions.length > 0
           ? item.suggestedOptions
           : [`Manter "${item.originalTerm}"`, `Traduzir "${item.originalTerm}"`],
-        selectedOption: undefined,
+        selectedOption: "",
       }));
     }
   } catch (err) {
@@ -244,6 +245,11 @@ Sua missão:
 2. PRESERVAR RIGOROSAMENTE todas as fórmulas matemáticas ($...$, \\[...\\], \\begin{equation}, matrizes \\begin{pmatrix}, etc.), comandos LaTeX (\\section, \\textbf, \\cite, \\ref) e diagramação.
 3. APLICAR ESTREITAMENTE o glossário e as decisões de tradução do usuário abaixo.${glossaryText}
 ${customInstruction ? `Instruções adicionais do usuário: ${customInstruction}` : ""}
+
+PADRÕES DE LATEX EXIGIDOS:
+- Utilize formatação LaTeX moderna com comandos de argumento: use \\textbf{...} para negrito (NUNCA use {\\bfseries ...} ou {\\bf ...}), \\textit{...} para itálico, \\section{...} para títulos de seções.
+- Nunca deixe fragmentos malformados como chaves soltas, colchetes de dimensão soltos como [1em], ou comandos TeX obsoletos.
+- Em nomes próprios e referências (ex: O. Lummer, p. 202), use espaçamento normal legível em vez de tios (~) excessivos.
 
 Documento LaTeX a traduzir:
 """
@@ -306,21 +312,23 @@ Retorne APENAS o JSON válido.`;
 }
 
 /**
- * ORQUESTRADOR PRINCIPAL DO PIPELINE AGÊNTICO
- * Executa as etapas encadeadas e emite callbacks visuais ricos em tempo real.
+ * FASE 1: Decomposição Estrutural e Extração de Terminologia (Agentes 1 e 2)
+ * Executa as etapas preliminares e para antes da tradução para permitir consulta humana aos termos.
  */
-export async function runAgenticTranslationPipeline(options: {
+export async function runPipelinePhase1(options: {
   text?: string;
   fileBase64?: string;
   mimeType?: string;
   fileName?: string;
   sourceLang: string;
   targetLang: string;
-  glossary: Array<{ original: string; translation: string }>;
-  userDecisions?: TermDecision[];
-  customInstruction?: string;
   onProgress?: (progress: AgenticPipelineProgress) => void;
-}): Promise<AgenticPipelineResult> {
+}): Promise<{
+  rawCleanContent: string;
+  formulasCount: number;
+  identifiedTerms: TermDecision[];
+  error: string | null;
+}> {
   try {
     // ── ETAPA 1: Decomposição e Extração Estrutural ──
     options.onProgress?.({
@@ -363,25 +371,62 @@ export async function runAgenticTranslationPipeline(options: {
       options.targetLang
     );
 
-    const termNames = identifiedTerms.map((t) => t.originalTerm);
+    return {
+      rawCleanContent,
+      formulasCount,
+      identifiedTerms,
+      error: null,
+    };
+  } catch (err: any) {
+    return {
+      rawCleanContent: "",
+      formulasCount: 0,
+      identifiedTerms: [],
+      error: err.message || "Falha na Fase 1 do pipeline agêntico.",
+    };
+  }
+}
+
+/**
+ * FASE 2: Síntese, Tradução com Decisões Humanas e Validação Sintática (Agentes 3 e 4)
+ * Prossegue com a tradução aplicando as decisões escolhidas pelo usuário durante a pausa.
+ */
+export async function runPipelinePhase2(options: {
+  rawCleanContent: string;
+  sourceLang: string;
+  targetLang: string;
+  glossary: Array<{ original: string; translation: string }>;
+  userDecisions?: TermDecision[];
+  customInstruction?: string;
+  formulasCount?: number;
+  identifiedTerms?: TermDecision[];
+  onProgress?: (progress: AgenticPipelineProgress) => void;
+}): Promise<{
+  translatedLatex: string;
+  validationIssues: string[];
+  error: string | null;
+}> {
+  try {
+    const termNames = (options.identifiedTerms || []).map((t) => t.originalTerm);
+    const formulasCount = options.formulasCount || 0;
 
     // ── ETAPA 3: Síntese e Tradução Científica ──
     options.onProgress?.({
       step: 3,
       stepName: "Síntese & Tradução Científica LaTeX",
       agentRole: "Tradutor Acadêmico & Sintetizador",
-      detail: `Traduzindo texto para ${options.targetLang}, preservando notações matemáticas e aplicando regras de glossário...`,
+      detail: `Traduzindo texto para ${options.targetLang}, preservando notações matemáticas e aplicando decisões do usuário...`,
       discoveredTerms: termNames,
       detectedFormulasCount: formulasCount,
       liveLogs: [
-        `${identifiedTerms.length} termos técnicos identificados para o Copiloto.`,
+        `${termNames.length} termos técnicos configurados com decisões do usuário.`,
         "Preservando integridade das fórmulas matemáticas e tabelas...",
         `Traduzindo e sintetizando documento LaTeX para ${options.targetLang}...`,
       ],
     });
 
     const translatedRaw = await agentTranslateAndSynthesize(
-      rawCleanContent,
+      options.rawCleanContent,
       options.sourceLang,
       options.targetLang,
       options.glossary,
@@ -408,18 +453,82 @@ export async function runAgenticTranslationPipeline(options: {
 
     return {
       translatedLatex: finalLatex,
-      originalLatex: rawCleanContent,
-      identifiedTerms,
       validationIssues: issuesFixed,
       error: null,
     };
   } catch (err: any) {
     return {
       translatedLatex: "",
-      identifiedTerms: [],
-      error: err.message || "Falha durante o pipeline agêntico de tradução.",
+      validationIssues: [],
+      error: err.message || "Falha na Fase 2 do pipeline agêntico.",
     };
   }
+}
+
+/**
+ * ORQUESTRADOR PRINCIPAL DO PIPELINE AGÊNTICO
+ * Executa as etapas encadeadas e emite callbacks visuais ricos em tempo real.
+ */
+export async function runAgenticTranslationPipeline(options: {
+  text?: string;
+  fileBase64?: string;
+  mimeType?: string;
+  fileName?: string;
+  sourceLang: string;
+  targetLang: string;
+  glossary: Array<{ original: string; translation: string }>;
+  userDecisions?: TermDecision[];
+  customInstruction?: string;
+  onProgress?: (progress: AgenticPipelineProgress) => void;
+}): Promise<AgenticPipelineResult> {
+  // Executa Fase 1
+  const phase1 = await runPipelinePhase1({
+    text: options.text,
+    fileBase64: options.fileBase64,
+    mimeType: options.mimeType,
+    fileName: options.fileName,
+    sourceLang: options.sourceLang,
+    targetLang: options.targetLang,
+    onProgress: options.onProgress,
+  });
+
+  if (phase1.error) {
+    return {
+      translatedLatex: "",
+      identifiedTerms: [],
+      error: phase1.error,
+    };
+  }
+
+  // Executa Fase 2
+  const phase2 = await runPipelinePhase2({
+    rawCleanContent: phase1.rawCleanContent,
+    sourceLang: options.sourceLang,
+    targetLang: options.targetLang,
+    glossary: options.glossary,
+    userDecisions: options.userDecisions,
+    customInstruction: options.customInstruction,
+    formulasCount: phase1.formulasCount,
+    identifiedTerms: phase1.identifiedTerms,
+    onProgress: options.onProgress,
+  });
+
+  if (phase2.error) {
+    return {
+      translatedLatex: "",
+      originalLatex: phase1.rawCleanContent,
+      identifiedTerms: phase1.identifiedTerms,
+      error: phase2.error,
+    };
+  }
+
+  return {
+    translatedLatex: phase2.translatedLatex,
+    originalLatex: phase1.rawCleanContent,
+    identifiedTerms: phase1.identifiedTerms,
+    validationIssues: phase2.validationIssues,
+    error: null,
+  };
 }
 
 /**
