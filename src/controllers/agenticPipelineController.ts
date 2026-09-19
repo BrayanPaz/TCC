@@ -131,7 +131,11 @@ Sua missão:
 1. Ler e analisar todo o documento fornecido (PDF digitalizado, imagem ou texto).
 2. Reconstruir o documento COMPLETO no formato CÓDIGO LATEX puro, mantendo o IDIOMA ORIGINAL fiel (ex: Alemão, Inglês, Francês).
 3. Mapear todas as seções (\\section, \\subsection), título (\\title), autor (\\author), ambientes matemáticos ($...$, \\begin{equation}, matrizes, frações, integrais), tabelas (\\begin{tabular}) e notas de rodapé (\\footnote).
-4. Gerar o arquivo .tex original completo, limpo e compilável.
+4. REGRAS OBRIGATÓRIAS PARA MATEMÁTICA:
+   - Delimitadores de chaves em \\left e \\right DEVEM conter contrabarra: use sempre \\left\\{ e \\right\\}, NUNCA use \\left{ ou \\right}.
+   - Frações DEVEM sempre ter chaves separando numerador e denominador: use sempre \\frac{numerador}{denominador} (ex: \\frac{U}{h\\nu}), NUNCA omita chaves (nunca gere \\fracUh\\nu).
+   - Equações em destaque devem estar dentro de \\[ ... \\] ou \\begin{equation} ... \\end{equation}.
+5. Gerar o arquivo .tex original completo, limpo e compilável.
 
 Retorne APENAS o código LaTeX completo do documento original, sem introduções ou explicações.`;
 
@@ -248,6 +252,7 @@ ${customInstruction ? `Instruções adicionais do usuário: ${customInstruction}
 
 PADRÕES DE LATEX EXIGIDOS:
 - Utilize formatação LaTeX moderna com comandos de argumento: use \\textbf{...} para negrito (NUNCA use {\\bfseries ...} ou {\\bf ...}), \\textit{...} para itálico, \\section{...} para títulos de seções.
+- Fórmulas matemáticas: use sempre delimitadores escapados para chaves: \\left\\{ e \\right\\} (NUNCA \\left{ ou \\right}). Em frações, use sempre chaves obrigatórias \\frac{numerador}{denominador} (NUNCA omita chaves como \\fracUh\\nu).
 - Nunca deixe fragmentos malformados como chaves soltas, colchetes de dimensão soltos como [1em], ou comandos TeX obsoletos.
 - Em nomes próprios e referências (ex: O. Lummer, p. 202), use espaçamento normal legível em vez de tios (~) excessivos.
 
@@ -275,6 +280,8 @@ Sua missão:
    - Chaves desbalanceadas { ou }
    - Ambientes não fechados (ex: \\begin{equation} sem \\end{equation}, \\begin{itemize} sem \\end{itemize})
    - Erros de delimitadores matemáticos ($ não fechados, \\] faltantes)
+   - Delimitadores matemáticos incorretos como \\left{ ou \\right} (que DEVEM ser corrigidos para \\left\\{ e \\right\\})
+   - Frações com chaves faltantes como \\fracUh\\nu (que DEVEM ser corrigidas para \\frac{U}{h\\nu})
    - Comandos com caracteres escapados incorretamente
 2. Corrigir automaticamente quaisquer problemas sintáticos encontrados garantindo que o código seja 100% compilável.
 

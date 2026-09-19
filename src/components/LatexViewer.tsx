@@ -414,34 +414,58 @@ export default function LatexViewer({
 }
 
 /**
- * Renderizador Robusto de KaTeX com sanitização de fórmulas multilinha e alinhamento
+ * Renderizador Robusto de KaTeX com auto-reparo e sanitização de fórmulas
  */
 function renderMathSafely(rawFormula: string, isDisplay: boolean): string {
   try {
     let clean = rawFormula.trim();
 
-    // Remove tags de ambientes matemáticos desnecessárias antes de processar
+    // 1. Remove tags de ambientes matemáticos desnecessárias antes de processar
     clean = clean
       .replace(/\\begin\{(equation|align|gather|multline)\*?\}/g, "")
       .replace(/\\end\{(equation|align|gather|multline)\*?\}/g, "")
       .trim();
 
-    // Se a fórmula contém alinhamento (& ou \\) e não está dentro de um ambiente alinhado, encapsula em aligned
+    // 2. Restaura marcadores de chaves escapadas \{ e \}
+    clean = clean
+      .replace(/___LBRACE___/g, "\\{")
+      .replace(/___RBRACE___/g, "\\}");
+
+    // 3. Corrige delimitadores de chaves não escapadas em \left e \right (erro clássico do KaTeX)
+    // No LaTeX/KaTeX, delimitadores de chaves DEVEM ser escapados: \left\{ e \right\}
+    clean = clean
+      .replace(/\\left\s*\{(?![a-zA-Z])/g, "\\left\\{")
+      .replace(/\\right\s*\}(?![a-zA-Z])/g, "\\right\\}");
+
+    // 4. Corrige frações sem chaves geradas por OCR ou LLMs
+    // Exemplo: \fracUh\nu -> \frac{U}{h\nu}
+    clean = clean.replace(/\\frac([A-Z])([a-z])\\([a-zA-Z]+)/g, "\\frac{$1}{$2\\$3}");
+    // Exemplo: \fracU\nu -> \frac{U}{\nu}
+    clean = clean.replace(/\\frac([A-Za-z0-9])\\([a-zA-Z]+)/g, "\\frac{$1}{\\$2}");
+    // Exemplo: \frac12 -> \frac{1}{2} ou \fracXY -> \frac{X}{Y}
+    clean = clean.replace(/\\frac([A-Za-z0-9])([A-Za-z0-9])/g, "\\frac{$1}{$2}");
+
+    // 5. Se houver pontuação colada imediatamente após \right (ex: \right}.), separa
+    clean = clean.replace(/(\\right\\[\{\}\(\)\[\]\.\/\|])([.,;])/g, "$1 $2");
+
+    // 6. Se a fórmula contém alinhamento (& ou \\) e não está dentro de um ambiente alinhado, encapsula em aligned
     if ((clean.includes("&") || clean.includes("\\\\")) && !clean.includes("\\begin{aligned}")) {
       clean = `\\begin{aligned} ${clean} \\end{aligned}`;
     }
 
-    // Corrige comandos comuns mal escapados em LaTeX
+    // 7. Corrige comandos comuns mal escapados em LaTeX
     clean = clean
       .replace(/\\d\s*\\nu/g, "\\,\\mathrm{d}\\nu")
       .replace(/\\d([a-zA-Z])/g, "\\,\\mathrm{d}$1")
       .replace(/\\text\s*\{([^}]+)\}/g, "\\text{$1}")
       .replace(/\\vartheta/g, "\\vartheta");
 
-    return katex.renderToString(clean, {
+    const rendered = katex.renderToString(clean, {
       displayMode: isDisplay,
       throwOnError: false, // Nunca quebra em erro; renderiza o restante da fórmula normalmente
     });
+
+    return rendered;
   } catch {
     return `<code class="math-fallback">${rawFormula}</code>`;
   }
