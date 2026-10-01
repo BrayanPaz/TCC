@@ -18,6 +18,18 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+# Pastas .claude de dependências (artefatos de IA em npm packages)
+node_modules/**/.claude/
+
+# Logs específicos da Expo
+.expo/dev/logs/*
+
+# Documentação de IA (não é código)
+.claude/
+AGENTS.md
+CLAUDE.md
+RELATORIO_HANDOFF.md
+
 # Metro
 .metro-health-check*
 

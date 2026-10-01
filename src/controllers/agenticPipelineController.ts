@@ -46,7 +46,8 @@ export interface AgenticPipelineResult {
 async function callGemini(
   prompt: string,
   inlineData?: { mimeType: string; data: string },
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  signal?: AbortSignal
 ): Promise<string> {
   if (!GEMINI_API_KEY) {
     throw new Error("Chave da API do Gemini não configurada no .env");
@@ -68,6 +69,9 @@ async function callGemini(
   // Percorre os modelos disponíveis caso haja sobrecarga temporária
   for (const model of FALLBACK_MODELS) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (signal?.aborted) {
+        throw new Error("TRANSLATION_ABORTED");
+      }
       try {
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
@@ -81,6 +85,7 @@ async function callGemini(
                 topP: 0.95,
               },
             }),
+            signal,
           }
         );
 
@@ -110,6 +115,9 @@ async function callGemini(
           break;
         }
       } catch (err: any) {
+        if (err?.name === "AbortError" || err?.message === "TRANSLATION_ABORTED") {
+          throw new Error("TRANSLATION_ABORTED");
+        }
         lastErrorMsg = err.message || "Erro de rede com o Gemini";
         await new Promise((res) => setTimeout(res, 1000 * attempt));
       }
@@ -124,18 +132,19 @@ async function callGemini(
  * Analisa o documento bruto (texto, PDF ou código) e isola o que é estrutura, o que são equações e o que é texto traduzível.
  */
 export async function agentDeconstructDocument(
-  input: { text?: string; fileBase64?: string; mimeType?: string; fileName?: string }
+  input: { text?: string; fileBase64?: string; mimeType?: string; fileName?: string; signal?: AbortSignal }
 ): Promise<{ structuralOutline: string; rawCleanContent: string }> {
   const prompt = `Você é o Agente 1 (Especialista em Engenharia Reversa e Decomposição Estrutural de Documentos em LaTeX).
 Sua missão:
 1. Ler e analisar todo o documento fornecido (PDF digitalizado, imagem ou texto).
 2. Reconstruir o documento COMPLETO no formato CÓDIGO LATEX puro, mantendo o IDIOMA ORIGINAL fiel (ex: Alemão, Inglês, Francês).
-3. Mapear todas as seções (\\section, \\subsection), título (\\title), autor (\\author), ambientes matemáticos ($...$, \\begin{equation}, matrizes, frações, integrais), tabelas (\\begin{tabular}) e notas de rodapé (\\footnote).
+3. Mapear todas as seções (\\section, \\subsection), título (\\title), autor (\\author), ambientes matemáticos ($...$, \\begin{equation}, matrizes, frações, integrais), tabelas de DADOS (\\begin{tabular}) e notas de rodapé (\\footnote).
 4. REGRAS OBRIGATÓRIAS PARA MATEMÁTICA:
    - Delimitadores de chaves em \\left e \\right DEVEM conter contrabarra: use sempre \\left\\{ e \\right\\}, NUNCA use \\left{ ou \\right}.
    - Frações DEVEM sempre ter chaves separando numerador e denominador: use sempre \\frac{numerador}{denominador} (ex: \\frac{U}{h\\nu}), NUNCA omita chaves (nunca gere \\fracUh\\nu).
    - Equações em destaque devem estar dentro de \\[ ... \\] ou \\begin{equation} ... \\end{equation}.
 5. Gerar o arquivo .tex original completo, limpo e compilável.
+6. DIAGRAMAÇÃO: documento em COLUNA ÚNICA. NUNCA use tabular/minipage/multicol para imitar duas páginas PDF lado a lado, cabeçalho bilingue ou papel timbrado. Ignore rodapés de template ("Page 1", "Student's Copy") se não forem conteúdo científico. Se o PDF for bilingue, extraia só o idioma original em fluxo contínuo.
 
 Retorne APENAS o código LaTeX completo do documento original, sem introduções ou explicações.`;
 
@@ -147,7 +156,7 @@ Retorne APENAS o código LaTeX completo do documento original, sem introduções
     ? `${prompt}\n\nDocumento de Entrada:\n"""\n${input.text}\n"""`
     : prompt;
 
-  const result = await callGemini(promptWithContent, inlineData);
+  const result = await callGemini(promptWithContent, inlineData, 3, input.signal);
   const cleanLatex = stripMarkdownFences(result);
 
   return {
@@ -163,7 +172,8 @@ Retorne APENAS o código LaTeX completo do documento original, sem introduções
 export async function agentExtractKeyTerminology(
   content: string,
   sourceLang: string,
-  targetLang: string
+  targetLang: string,
+  signal?: AbortSignal
 ): Promise<TermDecision[]> {
   const prompt = `Você é o Agente 2 (Linguista Computacional e Terminologista Técnico especializado em ${sourceLang} -> ${targetLang}).
 Analise o seguinte texto/código LaTeX e identifique termos técnicos-chave, jargões científicos, siglas ou palavras ambíguas cujo significado pode variar dependendo da preferência do autor (ex: "fine-tuning", "embedding", "zero-shot", "state-of-the-art", "gradient descent", "eigenvalue", "quantum superposition", "trade-off", "quanta", "wirkungsquantum", "strahlungsgesetz").
@@ -192,7 +202,7 @@ ${content.substring(0, 4000)}
 Retorne APENAS o array JSON válido sem texto fora do JSON.`;
 
   try {
-    const rawJson = await callGemini(prompt);
+    const rawJson = await callGemini(prompt, undefined, 3, signal);
     const cleanedJson = stripMarkdownFences(rawJson);
     const parsed = JSON.parse(cleanedJson);
     if (Array.isArray(parsed)) {
@@ -223,7 +233,8 @@ export async function agentTranslateAndSynthesize(
   targetLang: string,
   glossary: Array<{ original: string; translation: string }>,
   userDecisions: TermDecision[] = [],
-  customInstruction: string = ""
+  customInstruction: string = "",
+  signal?: AbortSignal
 ): Promise<string> {
   const effectiveGlossary = [...glossary];
 
@@ -255,6 +266,7 @@ PADRÕES DE LATEX EXIGIDOS:
 - Fórmulas matemáticas: use sempre delimitadores escapados para chaves: \\left\\{ e \\right\\} (NUNCA \\left{ ou \\right}). Em frações, use sempre chaves obrigatórias \\frac{numerador}{denominador} (NUNCA omita chaves como \\fracUh\\nu).
 - Nunca deixe fragmentos malformados como chaves soltas, colchetes de dimensão soltos como [1em], ou comandos TeX obsoletos.
 - Em nomes próprios e referências (ex: O. Lummer, p. 202), use espaçamento normal legível em vez de tios (~) excessivos.
+- NUNCA use \\begin{tabular} para layout de página, cabeçalho bilingue ou duas colunas de texto corrido. Use \\title, \\section e parágrafos em coluna única.
 
 Documento LaTeX a traduzir:
 """
@@ -263,7 +275,7 @@ ${latexContent}
 
 Retorne APENAS o documento LaTeX traduzido e compilável, sem introduções.`;
 
-  const result = await callGemini(prompt);
+  const result = await callGemini(prompt, undefined, 3, signal);
   return stripMarkdownFences(result);
 }
 
@@ -272,7 +284,8 @@ Retorne APENAS o documento LaTeX traduzido e compilável, sem introduções.`;
  * Faz a verificação sintática do documento gerado (chaves balanceadas, ambientes fechados, fórmulas válidas).
  */
 export async function agentValidateAndCorrectLatex(
-  translatedLatex: string
+  translatedLatex: string,
+  signal?: AbortSignal
 ): Promise<{ finalLatex: string; issuesFixed: string[] }> {
   const prompt = `Você é o Agente 4 (Validador e Linter de LaTeX).
 Sua missão:
@@ -299,7 +312,7 @@ ${translatedLatex}
 Retorne APENAS o JSON válido.`;
 
   try {
-    const rawJson = await callGemini(prompt);
+    const rawJson = await callGemini(prompt, undefined, 3, signal);
     const cleanedJson = stripMarkdownFences(rawJson);
     const parsed = JSON.parse(cleanedJson);
     if (parsed.finalLatex) {
@@ -330,6 +343,7 @@ export async function runPipelinePhase1(options: {
   sourceLang: string;
   targetLang: string;
   onProgress?: (progress: AgenticPipelineProgress) => void;
+  signal?: AbortSignal;
 }): Promise<{
   rawCleanContent: string;
   formulasCount: number;
@@ -355,6 +369,7 @@ export async function runPipelinePhase1(options: {
       fileBase64: options.fileBase64,
       mimeType: options.mimeType,
       fileName: options.fileName,
+      signal: options.signal,
     });
 
     const formulasCount = (rawCleanContent.match(/\$|\\begin\{equation\}|\\\[/g) || []).length;
@@ -375,7 +390,8 @@ export async function runPipelinePhase1(options: {
     const identifiedTerms = await agentExtractKeyTerminology(
       rawCleanContent,
       options.sourceLang,
-      options.targetLang
+      options.targetLang,
+      options.signal
     );
 
     return {
@@ -408,6 +424,7 @@ export async function runPipelinePhase2(options: {
   formulasCount?: number;
   identifiedTerms?: TermDecision[];
   onProgress?: (progress: AgenticPipelineProgress) => void;
+  signal?: AbortSignal;
 }): Promise<{
   translatedLatex: string;
   validationIssues: string[];
@@ -438,7 +455,8 @@ export async function runPipelinePhase2(options: {
       options.targetLang,
       options.glossary,
       options.userDecisions || [],
-      options.customInstruction
+      options.customInstruction,
+      options.signal
     );
 
     // ── ETAPA 4: Validação Sintática e Auto-Correção ──
@@ -456,7 +474,10 @@ export async function runPipelinePhase2(options: {
       ],
     });
 
-    const { finalLatex, issuesFixed } = await agentValidateAndCorrectLatex(translatedRaw);
+    const { finalLatex, issuesFixed } = await agentValidateAndCorrectLatex(
+      translatedRaw,
+      options.signal
+    );
 
     return {
       translatedLatex: finalLatex,

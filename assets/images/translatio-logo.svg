@@ -1,0 +1,22 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="112" fill="#0C0C12"/>
+  <defs>
+    <linearGradient id="glow" x1="96" y1="80" x2="416" y2="432" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8FA7FF"/>
+      <stop offset="0.5" stop-color="#6B8CFF"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.419 0 0 0 0 0.549 0 0 0 0 1 0 0 0 0.55 0"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="74" y="74" width="364" height="364" rx="78" stroke="url(#glow)" stroke-width="12" opacity="0.95"/>
+  <path d="M183 132C147 132 139 158 139 184V204C139 223 127 232 108 232V280C127 280 139 289 139 308V328C139 354 147 380 183 380" stroke="url(#glow)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" filter="url(#softGlow)"/>
+  <path d="M329 132C365 132 373 158 373 184V204C373 223 385 232 404 232V280C385 280 373 289 373 308V328C373 354 365 380 329 380" stroke="url(#glow)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" filter="url(#softGlow)"/>
+  <path d="M302 150L210 362" stroke="#E8ECFF" stroke-width="18" stroke-linecap="round" opacity="0.92"/>
+  <path d="M174 314L225 190H250L301 314H269L260 289H214L205 314H174ZM223 263H251L237 223L223 263Z" fill="#FFFFFF"/>
+  <path d="M318 197H357V177H379V197H418V218H404C398 242 389 262 377 278C389 286 403 292 421 297L410 319C390 312 373 303 359 292C344 304 326 313 305 320L294 299C312 294 328 287 341 278C330 265 321 249 313 229L334 222C340 238 348 251 359 262C368 250 375 236 380 218H318V197Z" fill="#DDE5FF"/>
+  <path d="M190 357H322" stroke="#6B8CFF" stroke-width="10" stroke-linecap="round" opacity="0.8"/>
+</svg>

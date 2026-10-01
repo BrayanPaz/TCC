@@ -545,30 +545,40 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
     return `\n\n<div class="math-display" style="display:flex;justify-content:center;margin:18px 0;padding:8px 0;overflow-x:auto;">${mathHtml}</div>\n\n`;
   });
 
-  // 4. Tabelas LaTeX \begin{tabular}
-  clean = clean.replace(/\\begin\{tabular\}\{[^}]+\}([\s\S]*?)\\end\{tabular\}/g, (_, tabBody) => {
-    const rows = tabBody
-      .split("\\\\")
-      .map((r: string) => r.trim())
-      .filter((r: string) => r.length > 0 && !r.startsWith("\\hline"));
+  // 4. Tabelas LaTeX \begin{tabular} — dados vs. layout bilingue/duas páginas
+  clean = clean.replace(
+    /\\begin\{tabular\*?\}\{(?:\{[^}]*\})?[^}]*\}([\s\S]*?)\\end\{tabular\*?\}/g,
+    (_, tabBody) => convertLatexTableToHtml(tabBody, isDark)
+  );
 
-    const tableRows = rows
-      .map((row: string) => {
-        const cells = row.split("&").map((c: string) => c.trim().replace(/\\hline/g, ""));
-        const cellTags = cells
-          .map(
-            (c: string) =>
-              `<td style="border:1px solid ${
-                isDark ? "rgba(255,255,255,0.12)" : "#ccc"
-              };padding:7px 12px;">${c}</td>`
-          )
-          .join("");
-        return `<tr>${cellTags}</tr>`;
-      })
-      .join("");
+  clean = clean.replace(
+    /\\begin\{tabularx\}\{[^}]+\}\{[^}]+\}([\s\S]*?)\\end\{tabularx\}/g,
+    (_, tabBody) => convertLatexTableToHtml(tabBody, isDark)
+  );
 
-    return `\n\n<table style="border-collapse:collapse;margin:18px auto;width:96%;">${tableRows}</table>\n\n`;
-  });
+  // Minipages consecutivas viram colunas de artigo, não caixas espremidas
+  clean = clean.replace(
+    /(?:\\begin\{minipage\}(?:\[[^\]]*\])?\{[^}]+\}([\s\S]*?)\\end\{minipage\}\s*){2,}/g,
+    (full) => {
+      const parts = [...full.matchAll(/\\begin\{minipage\}(?:\[[^\]]*\])?\{[^}]+\}([\s\S]*?)\\end\{minipage\}/g)].map(
+        (m) => m[1].trim()
+      );
+      if (parts.length < 2) return full;
+      const cols = parts
+        .map(
+          (p) =>
+            `<div style="min-width:0;padding:4px 12px;text-align:justify;line-height:1.75;">${p}</div>`
+        )
+        .join("");
+      return `\n\n<div style="display:grid;grid-template-columns:repeat(${parts.length},minmax(0,1fr));gap:28px;align-items:start;width:100%;">${cols}</div>\n\n`;
+    }
+  );
+
+  clean = clean.replace(/\\begin\{multicols\}\{\d+\}/gi, "").replace(/\\end\{multicols\}/gi, "");
+  clean = clean.replace(/\\twocolumn\b/gi, "");
+  clean = clean.replace(/\\onecolumn\b/gi, "");
+  clean = clean.replace(/\\hfill/g, " ");
+  clean = clean.replace(/\\hrule\b/gi, `<hr style="margin:16px 0;border:0;border-top:1px solid ${isDark ? "#333" : "#ddd"};" />`);
 
   // 5. Fórmulas Inline: $...$ e \(...\)
   clean = clean.replace(/\$([^\$\n]+?)\$/g, (_, formula) => {
@@ -635,7 +645,12 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
     .replace(/\\footnotesize\b/gi, `<span style="font-size:10.5px;color:${isDark ? '#8888a0' : '#666'};">`)
     .replace(/\\tiny\b/gi, "<span style='font-size:9.5px;'>")
     .replace(/\\bf\b\s*/gi, "<strong>")
-    .replace(/\\it\b\s*/gi, "<em>");
+    .replace(/\\it\b\s*/gi, "<em>")
+    // Suporte a \Huge e \HUGE
+    .replace(/\\Huge\b/gi, "<span style='font-size:24px;'>")
+    .replace(/\\HUGE\b/gi, "<span style='font-size:28px;'>")
+    // Suporte a \LARGE
+    .replace(/\\LARGE\b/gi, "<span style='font-size:19px;'>")
 
   // 9. Títulos, Autores e Seções Acadêmicas
   clean = clean.replace(
@@ -790,4 +805,63 @@ function convertLatexToAcademicPaperHtml(latex: string, isDark: boolean): string
   }
 
   return outputHtml;
+}
+
+function convertLatexTableToHtml(tabBody: string, isDark: boolean): string {
+  const rows = tabBody
+    .split("\\\\")
+    .map((r: string) => r.trim().replace(/\\hline/g, "").trim())
+    .filter((r: string) => r.length > 0);
+
+  const parsed = rows.map((row) => row.split("&").map((c) => c.trim()));
+  const colCount = parsed.reduce((max, cells) => Math.max(max, cells.length), 0);
+  const looksLikeLayout =
+    colCount === 2 &&
+    parsed.length <= 8 &&
+    parsed.some((cells) => cells.join(" ").replace(/<[^>]+>/g, "").length > 40);
+
+  if (looksLikeLayout) {
+    const columns = [0, 1].map((colIdx) =>
+      parsed
+        .map((cells) => cells[colIdx] || "")
+        .filter(Boolean)
+        .map((cell, idx, arr) => {
+          const plain = cell.replace(/<[^>]+>/g, "").trim();
+          const isHeader = idx === 0 && plain.length < 80;
+          const isFooter =
+            idx === arr.length - 1 && /page|página|copy|cópia/i.test(plain) && plain.length < 60;
+          if (isHeader) {
+            return `<h2 style="font-size:14px;font-weight:bold;margin:0 0 12px 0;line-height:1.35;">${cell}</h2>`;
+          }
+          if (isFooter) {
+            return `<p style="margin-top:24px;font-size:11px;color:${
+              isDark ? "#8888a0" : "#666"
+            };text-indent:0;">${cell}</p>`;
+          }
+          return `<p style="margin-bottom:12px;text-align:justify;text-indent:0;line-height:1.75;">${cell}</p>`;
+        })
+        .join("")
+    );
+
+    return `\n\n<div style="display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:start;width:100%;min-height:auto;">
+      <div style="min-width:0;">${columns[0]}</div>
+      <div style="min-width:0;">${columns[1]}</div>
+    </div>\n\n`;
+  }
+
+  const tableRows = parsed
+    .map((cells) => {
+      const cellTags = cells
+        .map(
+          (c: string) =>
+            `<td style="border:1px solid ${
+              isDark ? "rgba(255,255,255,0.12)" : "#ccc"
+            };padding:7px 12px;">${c}</td>`
+        )
+        .join("");
+      return `<tr>${cellTags}</tr>`;
+    })
+    .join("");
+
+  return `\n\n<table style="border-collapse:collapse;margin:18px auto;width:96%;">${tableRows}</table>\n\n`;
 }

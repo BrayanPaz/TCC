@@ -102,7 +102,7 @@ export default function Index() {
   const [sourceLang, setSourceLang] = useState("auto");
   const [targetLang, setTargetLang] = useState("pt-BR");
   const [promptInstructions, setPromptInstructions] = useState("");
-  
+
   const [isTranslating, setIsTranslating] = useState(false);
   const [pipelineProgress, setPipelineProgress] = useState<AgenticPipelineProgress | null>(null);
   const [identifiedTerms, setIdentifiedTerms] = useState<TermDecision[]>([]);
@@ -116,6 +116,26 @@ export default function Index() {
 
   const [originalFullText, setOriginalFullText] = useState("");
   const [translatedFullText, setTranslatedFullText] = useState("");
+
+  // ✅ PASSO 1: Controle de Concorrência & Isolamento de Tela
+  const [activeTranslatingDoc, setActiveTranslatingDoc] = useState<{
+    id?: string | null;
+    title: string;
+    startedAt: number;
+  } | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [globalToast, setGlobalToast] = useState<{
+    message: string;
+    docId?: string | null;
+    actionLabel?: string;
+  } | null>(null);
+
+  const activeHistoryIdRef = React.useRef<string | null>(activeHistoryId);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    activeHistoryIdRef.current = activeHistoryId;
+  }, [activeHistoryId]);
 
   // Firestore Data
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
@@ -160,6 +180,15 @@ export default function Index() {
   // Processamento unificado de arquivo selecionado ou arrastado (PDF, Imagens, TEX, DOCX)
   const processSelectedFile = (file: File) => {
     if (!file) return;
+
+    // ✅ PASSO 3: Limite de Tamanho de Arquivo (15 MB)
+    const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+    if (file.size > MAX_FILE_SIZE) {
+      const alertMsg = t("fileTooLargeAlert");
+      if (typeof window !== "undefined" && window.alert) window.alert(alertMsg);
+      else Alert.alert("Aviso", alertMsg);
+      return;
+    }
 
     // Detecção segura do tipo MIME com fallback para extensão
     let mimeType = file.type;
@@ -402,6 +431,18 @@ export default function Index() {
     };
   }, [isTranslating, isPausedForTerms, pipelineProgress]);
 
+  // ✅ Cronômetro de tempo decorrido durante a tradução
+  useEffect(() => {
+    if (!isTranslating || !activeTranslatingDoc) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - activeTranslatingDoc.startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isTranslating, activeTranslatingDoc]);
+
   // Dispara a Fase 1 do Pipeline Agêntico (Decomposição + Termos)
   const handleStartTranslation = async () => {
     const hasFile = selectedFile !== null;
@@ -414,6 +455,14 @@ export default function Index() {
       } else {
         Alert.alert("Aviso", msg);
       }
+      return;
+    }
+
+    // ✅ PASSO 1: Bloquear se já houver tradução em andamento
+    if (isTranslating || activeTranslatingDoc) {
+      const msg = t("concurrentTranslationWarning", { title: activeTranslatingDoc?.title || "" });
+      if (typeof window !== "undefined" && window.alert) window.alert(msg);
+      else Alert.alert("Aviso", msg);
       return;
     }
 
@@ -430,6 +479,16 @@ export default function Index() {
 
     setOriginalFullText(docOriginal);
 
+    // ✅ Instanciar AbortController para permitir cancelamento
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // Captura o documento visível ANTES das chamadas assíncronas (isolamento de tela)
+    const translatingDocId = activeHistoryIdRef.current;
+
+    // ✅ Setar documento ativo em tradução
+    setActiveTranslatingDoc({ id: activeHistoryId, title, startedAt: Date.now() });
+
     // Executa Fase 1: Decomposição e Análise de Terminologia
     const phase1 = await runPipelinePhase1({
       text: hasFile ? undefined : docOriginal,
@@ -438,6 +497,7 @@ export default function Index() {
       fileName: hasFile ? selectedFile?.name : undefined,
       sourceLang,
       targetLang,
+      signal: controller.signal,
       onProgress: (progress) => {
         setPipelineProgress(progress);
       },
@@ -445,7 +505,9 @@ export default function Index() {
 
     if (phase1.error) {
       setIsTranslating(false);
+      setActiveTranslatingDoc(null);
       setPipelineProgress(null);
+      if (phase1.error === "TRANSLATION_ABORTED") return;
       if (typeof window !== "undefined" && window.alert) {
         window.alert(`Erro no Pipeline Agêntico (Fase 1): ${phase1.error}`);
       } else {
@@ -461,31 +523,13 @@ export default function Index() {
       identifiedTerms: phase1.identifiedTerms,
       docTitle: title,
     };
-    setPhase1Data(p1Data);
-    setIdentifiedTerms(phase1.identifiedTerms);
 
     // Se houver termos técnicos identificados, PAUSA para consulta humana (Human-in-the-Loop)
     if (phase1.identifiedTerms.length > 0) {
-      setIsPausedForTerms(true);
-      setRightOpen(true); // Abre o menu lateral na aba de termos automaticamente
-      setPipelineProgress({
-        step: 2,
-        stepName: "Pausa: Consulta Terminológica (Human-in-the-Loop)",
-        agentRole: "Linguista Computacional Técnico",
-        detail: `Identificamos ${phase1.identifiedTerms.length} termos técnicos. Escolha as traduções desejadas no painel à direita e continue a tradução.`,
-        discoveredTerms: phase1.identifiedTerms.map((t) => t.originalTerm),
-        detectedFormulasCount: phase1.formulasCount,
-        liveLogs: [
-          `Fase 1 concluída: ${phase1.formulasCount} blocos de fórmulas mapeados.`,
-          `⏸️ ${phase1.identifiedTerms.length} termos técnicos pendentes de validação humana...`,
-        ],
-        isPausedForTerms: true,
-      });
-
       // SALVA O CHAT IMEDIATAMENTE NO HISTÓRICO COM STATUS 'paused_terms'
-      // PARA GARANTIR PERMANÊNCIA MESMO SE O USUÁRIO SAIR DA TELA!
+      let newDocId: string | null = null;
       try {
-        const { id: newDocId } = await saveTranslationHistory(
+        const { id } = await saveTranslationHistory(
           title,
           phase1.rawCleanContent,
           "",
@@ -498,24 +542,67 @@ export default function Index() {
           p1Data,
           promptInstructions
         );
+        newDocId = id || null;
         if (newDocId) {
-          setActiveHistoryId(newDocId);
           await loadUserData();
         }
       } catch (e) {
         console.warn("Aviso ao salvar chat pausado no histórico:", e);
       }
+
+      // ✅ Se o usuário ainda está na mesma tela, atualiza estados normais
+      if (activeHistoryIdRef.current === translatingDocId) {
+        setPhase1Data(p1Data);
+        setIdentifiedTerms(phase1.identifiedTerms);
+        setIsPausedForTerms(true);
+        setRightOpen(true);
+        setPipelineProgress({
+          step: 2,
+          stepName: t("hitlTitle"),
+          agentRole: t("step2Role"),
+          detail: `${t("identifiedTermsCount", { count: phase1.identifiedTerms.length })} • ${t("hitlBody")}`,
+          discoveredTerms: phase1.identifiedTerms.map((t) => t.originalTerm),
+          detectedFormulasCount: phase1.formulasCount,
+          liveLogs: [
+            `${t("step1Name")}: ${phase1.formulasCount} ${t("formulasDetected", { count: phase1.formulasCount })}`,
+            `⏸️ ${t("identifiedTermsCount", { count: phase1.identifiedTerms.length })}...`,
+          ],
+          isPausedForTerms: true,
+        });
+        if (newDocId) setActiveHistoryId(newDocId);
+      } else {
+        // ✅ Se o usuário navegou para outro documento, NÃO sobrescrever a tela!
+        setGlobalToast({
+          message: t("docPausedInBackground", { title }),
+          docId: newDocId,
+          actionLabel: t("viewDocument"),
+        });
+      }
     } else {
       // Se não houver termos ambíguos, prossegue direto para a Fase 2
-      await handleExecutePhase2(phase1.rawCleanContent, phase1.formulasCount, [], title, null);
+      await handleExecutePhase2(
+        phase1.rawCleanContent,
+        phase1.formulasCount,
+        [],
+        title,
+        null,
+        translatingDocId
+      );
     }
   };
 
   // Continua o Pipeline Agêntico (Fase 2: Tradução e Validação) aplicando as decisões humanas
   const handleResumePhase2 = async (skipCustomDecisions = false) => {
     if (!phase1Data) return;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsPausedForTerms(false);
     setIsTranslating(true);
+    setActiveTranslatingDoc({
+      id: activeHistoryId,
+      title: phase1Data.docTitle,
+      startedAt: Date.now(),
+    });
 
     const userDecisionsToApply = skipCustomDecisions ? [] : identifiedTerms.filter((t) => t.selectedOption);
     await handleExecutePhase2(
@@ -523,7 +610,8 @@ export default function Index() {
       phase1Data.formulasCount,
       userDecisionsToApply,
       phase1Data.docTitle,
-      activeHistoryId
+      activeHistoryId,
+      activeHistoryIdRef.current
     );
   };
 
@@ -532,8 +620,12 @@ export default function Index() {
     formulasCount: number,
     decisions: TermDecision[],
     title: string,
-    existingHistoryId?: string | null
+    existingHistoryId?: string | null,
+    originatingScreenId?: string | null
   ) => {
+    const translatingDocId =
+      originatingScreenId !== undefined ? originatingScreenId : activeHistoryIdRef.current;
+
     const phase2 = await runPipelinePhase2({
       rawCleanContent,
       sourceLang,
@@ -543,16 +635,20 @@ export default function Index() {
       customInstruction: promptInstructions,
       formulasCount,
       identifiedTerms,
+      signal: abortControllerRef.current?.signal,
       onProgress: (progress) => {
         setPipelineProgress(progress);
       },
     });
 
+    // ✅ Sempre limpar estados de tradução ao concluir
     setIsTranslating(false);
+    setActiveTranslatingDoc(null);
     setPipelineProgress(null);
     setIsPausedForTerms(false);
 
     if (phase2.error) {
+      if (phase2.error === "TRANSLATION_ABORTED") return;
       if (typeof window !== "undefined" && window.alert) {
         window.alert(`Erro no Pipeline Agêntico (Fase 2): ${phase2.error}`);
       } else {
@@ -561,13 +657,20 @@ export default function Index() {
       return;
     }
 
-    setOriginalFullText(rawCleanContent);
-    setTranslatedFullText(phase2.translatedLatex);
-    setViewMode("reading");
-    setRightOpen(true);
+    // ✅ PASSO 1: Verificar se o usuário ainda está na mesma tela
+    const isSameScreen = activeHistoryIdRef.current === translatingDocId;
+
+    if (isSameScreen) {
+      setOriginalFullText(rawCleanContent);
+      setTranslatedFullText(phase2.translatedLatex);
+      setViewMode("reading");
+      setRightOpen(true);
+    }
 
     try {
       const finalTerms = decisions.length > 0 ? decisions : identifiedTerms;
+      let savedDocId: string | null = existingHistoryId || null;
+
       if (existingHistoryId) {
         await updateTranslationHistory(existingHistoryId, {
           title,
@@ -593,12 +696,35 @@ export default function Index() {
           null,
           promptInstructions
         );
-        if (newId) setActiveHistoryId(newId);
+        savedDocId = newId || null;
+        if (isSameScreen && newId) setActiveHistoryId(newId);
       }
       await loadUserData();
+
+      // ✅ Se o usuário estava olhando outro documento, exibir toast
+      if (!isSameScreen) {
+        setGlobalToast({
+          message: t("docCompletedInBackground", { title }),
+          docId: savedDocId,
+          actionLabel: t("viewDocument"),
+        });
+      }
     } catch (e) {
       console.error("[Translatio History] Erro ao salvar histórico:", e);
     }
+  };
+
+  // ✅ PASSO 2: Botão de Pausar / Cancelar Tradução
+  const handleCancelTranslation = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsTranslating(false);
+    setActiveTranslatingDoc(null);
+    setPipelineProgress(null);
+    const msg = t("translationAbortedByUser");
+    if (typeof window !== "undefined" && window.alert) window.alert(msg);
+    else Alert.alert("Aviso", msg);
   };
 
   // Aplica decisão de termo escolhida pelo usuário no chat do Copiloto
@@ -695,14 +821,14 @@ export default function Index() {
 
         setPipelineProgress({
           step: 2,
-          stepName: "Pausa: Consulta Terminológica (Human-in-the-Loop)",
-          agentRole: "Linguista Computacional Técnico",
-          detail: `Identificamos ${savedTerms.length} termos técnicos. Escolha as traduções desejadas no painel à direita e continue a tradução.`,
+          stepName: t("hitlTitle"),
+          agentRole: t("step2Role"),
+          detail: `${t("identifiedTermsCount", { count: savedTerms.length })} • ${t("hitlBody")}`,
           discoveredTerms: savedTerms.map((t: any) => t.originalTerm),
           detectedFormulasCount: p1.formulasCount || 0,
           liveLogs: [
-            `Fase 1 concluída: ${p1.formulasCount || 0} blocos de fórmulas mapeados.`,
-            `⏸️ ${savedTerms.length} termos técnicos pendentes de validação humana...`,
+            `${t("step1Name")}: ${p1.formulasCount || 0} ${t("formulasDetected", { count: p1.formulasCount || 0 })}`,
+            `⏸️ ${t("identifiedTermsCount", { count: savedTerms.length })}...`,
           ],
           isPausedForTerms: true,
         });
@@ -1096,14 +1222,31 @@ export default function Index() {
                           isLight ? "text-blue-900" : "text-[#6b8cff]"
                         }`}
                       >
-                        Pipeline Agêntico Multimodal Ativo
+                        {t("pipelineActiveTitle")}
                       </Text>
                     </View>
-                    <View className="flex-row items-center gap-1.5 bg-[#6b8cff]/15 px-2.5 py-1 rounded-full border border-[#6b8cff]/30">
-                      <ActivityIndicator size="small" color="#6b8cff" />
-                      <Text className="text-[#6b8cff] text-[10px] font-mono font-bold">
-                        Etapa {pipelineProgress.step} de 4 ({pipelineProgress.step * 25}%)
-                      </Text>
+                    <View className="flex-row items-center gap-2">
+                      {/* ✅ Cronômetro de tempo decorrido */}
+                      <View className="flex-row items-center gap-1 bg-white/[0.05] px-2 py-1 rounded-full border border-white/[0.08]">
+                        <Feather name="clock" size={10} color={isLight ? "#6b7280" : "#a0a0b8"} />
+                        <Text className={`text-[10px] font-mono ${isLight ? "text-neutral-600" : "text-[#a0a0b8]"}`}>
+                          {Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, "0")}
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center gap-1.5 bg-[#6b8cff]/15 px-2.5 py-1 rounded-full border border-[#6b8cff]/30">
+                        <ActivityIndicator size="small" color="#6b8cff" />
+                        <Text className="text-[#6b8cff] text-[10px] font-mono font-bold">
+                          {t("pipelineStepOf", { step: pipelineProgress.step, percent: pipelineProgress.step * 25 })}
+                        </Text>
+                      </View>
+                      {/* ✅ PASSO 2: Botão de Cancelar */}
+                      <TouchableOpacity
+                        className="p-1.5 rounded-lg bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 active:scale-95 transition-all"
+                        onPress={handleCancelTranslation}
+                        accessibilityLabel={t("translationAbortedByUser")}
+                      >
+                        <Feather name="x" size={12} color="#ef4444" />
+                      </TouchableOpacity>
                     </View>
                   </View>
 
@@ -1128,10 +1271,10 @@ export default function Index() {
                   {/* 4-Node Visual Stepper (Agente 1 a 4) */}
                   <View className="flex-row items-center justify-between mb-4 px-1">
                     {[
-                      { num: 1, label: "Estrutura", icon: "layers" },
-                      { num: 2, label: "Termos", icon: "book" },
-                      { num: 3, label: "Tradução", icon: "globe" },
-                      { num: 4, label: "Auditoria", icon: "shield" },
+                      { num: 1, label: t("stepShort1"), icon: "layers" },
+                      { num: 2, label: t("stepShort2"), icon: "book" },
+                      { num: 3, label: t("stepShort3"), icon: "globe" },
+                      { num: 4, label: t("stepShort4"), icon: "shield" },
                     ].map((st, idx) => {
                       const isPast = pipelineProgress.step > st.num;
                       const isCurrent = pipelineProgress.step === st.num;
@@ -1204,7 +1347,7 @@ export default function Index() {
                     <View className="flex-row items-center gap-1.5 mb-1">
                       <Feather name="cpu" size={12} color="#6b8cff" />
                       <Text className="text-[#6b8cff] text-[11px] font-bold">
-                        {pipelineProgress.agentRole || "Agente Especialista"}
+                        {pipelineProgress.agentRole || t("agentSpecialist")}
                       </Text>
                     </View>
                     <Text
@@ -1242,7 +1385,7 @@ export default function Index() {
                           isLight ? "text-neutral-500" : "text-[#6b6b80]"
                         }`}
                       >
-                        Termos Técnicos Identificados para o Copiloto:
+                        {t("identifiedTermsLive")}
                       </Text>
                       <View className="flex-row flex-wrap gap-1.5">
                         {pipelineProgress.discoveredTerms.slice(0, 8).map((term, tIdx) => (
@@ -1273,7 +1416,7 @@ export default function Index() {
                           <Feather name="help-circle" size={12} color="#ffffff" />
                         </View>
                         <Text className="text-xs font-bold text-[#6b8cff]">
-                          Consulta Terminológica Interativa (Human-in-the-Loop)
+                          {t("hitlTitle")}
                         </Text>
                       </View>
                       <Text
@@ -1281,7 +1424,7 @@ export default function Index() {
                           isLight ? "text-neutral-700" : "text-[#c8c8d8]"
                         }`}
                       >
-                        O Agente Linguista pausou a tradução para consultar você sobre os termos técnicos encontrados. O painel à direita foi aberto para você escolher as traduções preferidas. Quando terminar ou se preferir o padrão, clique para continuar:
+                        {t("hitlBody")}
                       </Text>
                       <View className="flex-row items-center gap-2">
                         <TouchableOpacity
@@ -1289,7 +1432,7 @@ export default function Index() {
                           onPress={() => handleResumePhase2(false)}
                         >
                           <Text className="text-white text-xs font-bold">
-                            Continuar Tradução com minhas Decisões
+                            {t("continueWithDecisions")}
                           </Text>
                           <Feather name="arrow-right" size={13} color="#ffffff" />
                         </TouchableOpacity>
@@ -1307,7 +1450,7 @@ export default function Index() {
                               isLight ? "text-neutral-700" : "text-[#c8c8d8]"
                             }`}
                           >
-                            Usar Padrão
+                            {t("useDefaultTerms")}
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -1347,13 +1490,21 @@ export default function Index() {
                     isLight ? "border-neutral-100 bg-neutral-50/50" : "border-white/[0.05]"
                   }`}
                 >
-                  <Text
-                    className={`text-[10px] uppercase tracking-widest font-medium ${
-                      isLight ? "text-neutral-400" : "text-[#6b6b80]"
-                    }`}
-                  >
-                    {t("pipelineTitle")}
-                  </Text>
+                  <View className="flex-col">
+                    <Text
+                      className={`text-[10px] uppercase tracking-widest font-medium ${
+                        isLight ? "text-neutral-400" : "text-[#6b6b80]"
+                      }`}
+                    >
+                      {t("pipelineTitle")}
+                    </Text>
+                    {/* ✅ PASSO 3: Prévia de tempo estimado */}
+                    {(selectedFile || inputText.trim().length > 0) && !isTranslating && !isPausedForTerms && (
+                      <Text className={`text-[9px] mt-0.5 ${isLight ? "text-neutral-400" : "text-[#6b6b80]"}`}>
+                        ⏱️ {t("estimatedTimePreview", { seconds: selectedFile ? 45 : 20 })} • Limite: 15MB
+                      </Text>
+                    )}
+                  </View>
                   <TouchableOpacity
                     className={
                       isTranslating || isPausedForTerms
@@ -1370,7 +1521,7 @@ export default function Index() {
                         <Feather name="send" size={12} color="#ffffff" />
                         <Text className="text-white text-xs font-semibold">
                           {isPausedForTerms
-                            ? "Pausado: Escolha os termos acima"
+                            ? t("pausedChooseTerms")
                             : isTranslating
                             ? t("translating")
                             : t("startTranslation")}
@@ -1547,6 +1698,50 @@ export default function Index() {
               <Text className="text-white text-xs font-semibold">{t("viewLiveProgress")}</Text>
               <Feather name="arrow-right" size={12} color="#ffffff" />
             </TouchableOpacity>
+
+            {/* ✅ PASSO 2: Botão de Cancelar na barra flutuante */}
+            {isTranslating && (
+              <TouchableOpacity
+                className="p-1.5 rounded-lg bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 active:scale-95 transition-all"
+                onPress={handleCancelTranslation}
+              >
+                <Feather name="x" size={12} color="#ef4444" />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* ✅ TOAST GLOBAL para notificações de documentos em segundo plano */}
+        {globalToast && (
+          <View
+            className={`absolute top-4 self-center z-50 flex-row items-center gap-3 py-3 px-4 rounded-2xl shadow-2xl border backdrop-blur-md animate-smooth-fade ${
+              isLight
+                ? "bg-white/95 border-emerald-300 shadow-emerald-500/20"
+                : "bg-[#11162b]/95 border-emerald-500/40 shadow-black/80"
+            }`}
+          >
+            <Feather name="check-circle" size={16} color="#10b981" />
+            <Text className={`text-xs font-medium flex-1 ${isLight ? "text-neutral-800" : "text-[#e8e8f0]"}`}>
+              {globalToast.message}
+            </Text>
+            {globalToast.docId && (
+              <TouchableOpacity
+                className="py-1.5 px-3 rounded-xl bg-[#6b8cff] hover:bg-[#5b7ce8] active:scale-95 transition-all"
+                onPress={() => {
+                  const doc = history.find((h) => h.id === globalToast.docId);
+                  if (doc) handleSelectHistory(doc);
+                  setGlobalToast(null);
+                }}
+              >
+                <Text className="text-white text-xs font-semibold">{globalToast.actionLabel}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              className="p-1 rounded-lg hover:bg-white/10 active:scale-95"
+              onPress={() => setGlobalToast(null)}
+            >
+              <Feather name="x" size={14} color={isLight ? "#6b7280" : "#a0a0b8"} />
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -1572,15 +1767,29 @@ export default function Index() {
       )}
 
       {/* ── 3. MENU DIREITO (RMenu - COPILOTO AGÊNTICO & CONSULTA DE TERMOS) ── */}
+      {/* ✅ PASSO 4: Conectar RMenu com Batch Confirmation + Abrir automaticamente na pausa HITL */}
       <RMenu
-        isOpen={viewMode === "reading" && rightOpen}
+        isOpen={(viewMode === "reading" && rightOpen) || isPausedForTerms}
         currentOriginal={originalFullText}
         currentTranslated={translatedFullText}
         identifiedTerms={identifiedTerms}
         theme={theme}
+        isTranslating={isTranslating}
         onOpenGlossary={() => setShowGlossaryModal(true)}
         onApplyAdjustment={(newText) => setTranslatedFullText(newText)}
         onApplyTermDecision={handleApplyTermDecision}
+        onConfirmDecisions={async (decisions) => {
+          setIdentifiedTerms(decisions);
+          if (isPausedForTerms && phase1Data) {
+            await handleExecutePhase2(
+              phase1Data.rawCleanContent,
+              phase1Data.formulasCount,
+              decisions,
+              phase1Data.docTitle,
+              activeHistoryId
+            );
+          }
+        }}
       />
 
       {/* ── 4. MODAL DO GLOSSÁRIO ── */}

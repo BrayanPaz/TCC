@@ -7,6 +7,54 @@ html, body, #root {
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: calc(16px * var(--a11y-font-scale, 1));
+}
+
+.a11y-high-contrast {
+  filter: contrast(1.18);
+}
+
+.a11y-high-contrast body {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+.a11y-dyslexia,
+.a11y-dyslexia body,
+.a11y-dyslexia * {
+  font-family: "Lexend", "Comic Sans MS", "Atkinson Hyperlegible", system-ui, sans-serif !important;
+  letter-spacing: 0.03em;
+  word-spacing: 0.08em;
+  line-height: 1.7;
+}
+
+.a11y-underline-links a,
+.a11y-underline-links [role="link"] {
+  text-decoration: underline !important;
+  text-underline-offset: 3px;
+}
+
+.a11y-reduce-motion *,
+.a11y-reduce-motion *::before,
+.a11y-reduce-motion *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 9999;
+  background: #6b8cff;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.skip-to-content:focus {
+  left: 8px;
 }
 
 /* Transições universais suaves em botões, links e caixas interativas */

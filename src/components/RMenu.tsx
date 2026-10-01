@@ -19,9 +19,11 @@ interface RMenuProps {
   currentTranslated: string;
   identifiedTerms?: TermDecision[];
   theme?: "dark" | "light";
+  isTranslating?: boolean;
   onOpenGlossary: () => void;
   onApplyAdjustment?: (newTranslated: string) => void;
   onApplyTermDecision?: (term: TermDecision, chosenOption: string) => void;
+  onConfirmDecisions?: (decisions: TermDecision[]) => void;
 }
 
 export default function RMenu({
@@ -33,6 +35,8 @@ export default function RMenu({
   onOpenGlossary,
   onApplyAdjustment,
   onApplyTermDecision,
+  onConfirmDecisions,
+  isTranslating = false,
 }: RMenuProps) {
   const isLight = theme === "light";
   const { t } = useLanguage();
@@ -49,7 +53,23 @@ export default function RMenu({
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"chat" | "terms">("chat");
   const [customTermInputs, setCustomTermInputs] = useState<{ [termId: string]: string }>({});
+  const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Inicializa escolhas com sugestões pré-selecionadas como checklist
+  useEffect(() => {
+    if (identifiedTerms.length > 0) {
+      const initial: Record<string, string> = {};
+      identifiedTerms.forEach((t) => {
+        if (t.selectedOption) {
+          initial[t.id] = t.selectedOption;
+        } else if (t.suggestedOptions && t.suggestedOptions.length > 0) {
+          initial[t.id] = t.suggestedOptions[0];
+        }
+      });
+      setSelectedChoices((prev) => ({ ...initial, ...prev }));
+    }
+  }, [identifiedTerms]);
 
   // Notifica o chat quando novos termos são identificados pelo Agente 2
   useEffect(() => {
@@ -122,24 +142,53 @@ export default function RMenu({
     }
   };
 
-  const handleSelectOption = (term: TermDecision, option: string) => {
-    onApplyTermDecision?.(term, option);
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `dec-${Date.now()}`,
-        role: "model",
-        text: `Opção aplicada para "${term.originalTerm}" → "${option}". O documento LaTeX foi atualizado.`,
-        type: "text",
-      },
-    ]);
+  const handleSelectOptionChoice = (term: TermDecision, option: string) => {
+    setSelectedChoices((prev) => ({ ...prev, [term.id]: option }));
   };
 
   const handleApplyCustomOption = (term: TermDecision) => {
     const customVal = customTermInputs[term.id]?.trim();
     if (!customVal) return;
-    handleSelectOption(term, customVal);
+    setSelectedChoices((prev) => ({ ...prev, [term.id]: customVal }));
   };
+
+  const handleConfirmAll = () => {
+    const decisions: TermDecision[] = identifiedTerms.map((t) => ({
+      ...t,
+      selectedOption: selectedChoices[t.id] || t.suggestedOptions[0] || t.originalTerm,
+    }));
+
+    if (onConfirmDecisions) {
+      onConfirmDecisions(decisions);
+    } else if (onApplyTermDecision) {
+      decisions.forEach((d) => onApplyTermDecision(d, d.selectedOption || ""));
+    }
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `dec-${Date.now()}`,
+        role: "model",
+        text: `Todas as decisões para os ${decisions.length} termos foram confirmadas e aplicadas.`,
+        type: "text",
+      },
+    ]);
+  };
+
+  const handleUseDefaultAll = () => {
+    const decisions: TermDecision[] = identifiedTerms.map((t) => ({
+      ...t,
+      selectedOption: t.suggestedOptions[0] || t.originalTerm,
+    }));
+
+    if (onConfirmDecisions) {
+      onConfirmDecisions(decisions);
+    }
+  };
+
+  const decidedCount = identifiedTerms.filter(
+    (t) => Boolean(selectedChoices[t.id])
+  ).length;
 
   return (
     <View
@@ -317,131 +366,243 @@ export default function RMenu({
           </ScrollView>
         )}
 
-        {/* ── ABA 2: DECISÕES DE TERMINOLOGIA (CONSULTA AGÊNTICA AO USUÁRIO) ── */}
+        {/* ── ABA 2: DECISÕES DE TERMINOLOGIA (CHECKLIST COM CONFIRMAÇÃO UNIFICADA) ── */}
         {activeTab === "terms" && (
-          <ScrollView className="flex-1 px-3 py-3" showsVerticalScrollIndicator={false}>
-            {identifiedTerms.length === 0 ? (
-              <View className="items-center justify-center py-12 px-4">
-                <Feather name="check-circle" size={24} color="#6b6b80" />
-                <Text
-                  className={`text-xs font-semibold mt-3 ${
-                    isLight ? "text-neutral-800" : "text-[#e8e8f0]"
-                  }`}
-                >
-                  Nenhum termo ambíguo pendente
-                </Text>
-                <Text className="text-[#6b6b80] text-[11px] text-center mt-1">
-                  Os termos técnicos foram processados conforme o glossário padrão.
-                </Text>
-              </View>
-            ) : (
-              identifiedTerms.map((term) => (
-                <View
-                  key={term.id}
-                  className={`rounded-xl p-3.5 mb-3 animate-smooth-fade shadow-sm border ${
-                    isLight
-                      ? "bg-white border-neutral-200"
-                      : "bg-[#0c0c12] border-white/[0.08]"
-                  }`}
-                >
-                  {/* Cabeçalho do Termo */}
-                  <View className="flex-row items-center justify-between mb-1.5">
-                    <Text
-                      className={`text-xs font-bold font-mono ${
-                        isLight ? "text-neutral-900" : "text-white"
-                      }`}
-                    >
-                      "{term.originalTerm}"
-                    </Text>
-                    {term.selectedOption ? (
-                      <View className="flex-row items-center gap-1 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                        <Feather name="check" size={10} color="#10b981" />
-                        <Text className="text-emerald-500 text-[9px] font-medium">Decidido</Text>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  {/* Contexto no Documento */}
-                  {term.contextSentence ? (
-                    <Text
-                      className={`text-[10px] italic mb-3 ${
-                        isLight ? "text-neutral-500" : "text-[#6b6b80]"
-                      }`}
-                      numberOfLines={2}
-                    >
-                      "{term.contextSentence}"
-                    </Text>
-                  ) : null}
-
-                  {/* Opções de Escolha Rápida (Chips) */}
-                  <Text className="text-[9px] uppercase tracking-wider text-[#6b8cff] font-semibold mb-1.5">
-                    Escolha a tradução desejada:
-                  </Text>
-                  <View className="flex-col gap-1.5 mb-2.5">
-                    {term.suggestedOptions.map((opt, optIdx) => {
-                      const isSelected = term.selectedOption === opt;
-                      return (
-                        <TouchableOpacity
-                          key={optIdx}
-                          className={`p-2 rounded-lg border transition-all flex-row items-center justify-between ${
-                            isSelected
-                              ? "bg-[#6b8cff]/20 border-[#6b8cff] shadow-sm"
-                              : isLight
-                              ? "bg-neutral-50 border-neutral-200 hover:bg-neutral-100"
-                              : "bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.07]"
-                          }`}
-                          onPress={() => handleSelectOption(term, opt)}
-                        >
-                          <Text
-                            className={`text-[11px] flex-1 ${
-                              isSelected
-                                ? isLight
-                                  ? "text-blue-900 font-bold"
-                                  : "text-white font-semibold"
-                                : isLight
-                                ? "text-neutral-700"
-                                : "text-[#c8c8d8]"
-                            }`}
-                          >
-                            {opt}
-                          </Text>
-                          {isSelected ? <Feather name="check" size={11} color="#6b8cff" /> : null}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  {/* Campo de Tradução Customizada */}
-                  <View
-                    className={`flex-row gap-1.5 pt-2 border-t ${
-                      isLight ? "border-neutral-100" : "border-white/[0.05]"
+          <View className="flex-1 flex-col justify-between overflow-hidden">
+            <ScrollView className="flex-1 px-3 py-3" showsVerticalScrollIndicator={false}>
+              {identifiedTerms.length === 0 ? (
+                <View className="items-center justify-center py-12 px-4">
+                  <Feather name="check-circle" size={24} color="#6b6b80" />
+                  <Text
+                    className={`text-xs font-semibold mt-3 ${
+                      isLight ? "text-neutral-800" : "text-[#e8e8f0]"
                     }`}
                   >
-                    <TextInput
-                      className={`flex-1 rounded-lg px-2.5 py-1 text-[11px] border ${
-                        isLight
-                          ? "bg-neutral-50 border-neutral-200 text-neutral-900"
-                          : "bg-white/[0.05] border-white/[0.08] text-white focus:border-[#6b8cff]/40"
-                      }`}
-                      placeholder="Ou digite sua tradução..."
-                      placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
-                      value={customTermInputs[term.id] || ""}
-                      onChangeText={(val) =>
-                        setCustomTermInputs((prev) => ({ ...prev, [term.id]: val }))
-                      }
-                      onSubmitEditing={() => handleApplyCustomOption(term)}
-                    />
-                    <TouchableOpacity
-                      className="bg-[#6b8cff] px-2.5 py-1 rounded-lg items-center justify-center active:scale-95"
-                      onPress={() => handleApplyCustomOption(term)}
-                    >
-                      <Feather name="check" size={11} color="#ffffff" />
-                    </TouchableOpacity>
-                  </View>
+                    {t("noPendingTerms")}
+                  </Text>
+                  <Text className="text-[#6b6b80] text-[11px] text-center mt-1">
+                    {t("termsProcessedDefault")}
+                  </Text>
                 </View>
-              ))
+              ) : (
+                identifiedTerms.map((term, tIdx) => {
+                  const currentChoice =
+                    selectedChoices[term.id] ||
+                    term.selectedOption ||
+                    term.suggestedOptions[0] ||
+                    term.originalTerm;
+                  const isDecided = Boolean(selectedChoices[term.id]);
+
+                  return (
+                    <View
+                      key={term.id || tIdx}
+                      className={`rounded-xl p-3.5 mb-3 animate-smooth-fade shadow-sm border ${
+                        isLight
+                          ? isDecided
+                            ? "bg-white border-blue-200"
+                            : "bg-white border-neutral-200"
+                          : isDecided
+                          ? "bg-[#10101a] border-[#6b8cff]/30"
+                          : "bg-[#0c0c12] border-white/[0.08]"
+                      }`}
+                    >
+                      {/* Cabeçalho do Termo */}
+                      <View className="flex-row items-center justify-between mb-1.5">
+                        <View className="flex-row items-center gap-1.5 flex-1 mr-2">
+                          <Text className="text-[10px] font-mono text-[#6b8cff] font-bold">
+                            #{tIdx + 1}
+                          </Text>
+                          <Text
+                            className={`text-xs font-bold font-mono ${
+                              isLight ? "text-neutral-900" : "text-white"
+                            }`}
+                            numberOfLines={1}
+                          >
+                            "{term.originalTerm}"
+                          </Text>
+                        </View>
+                        {isDecided ? (
+                          <View className="flex-row items-center gap-1 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                            <Feather name="check" size={9} color="#10b981" />
+                            <Text className="text-emerald-500 text-[9px] font-medium">
+                              {t("termDecided")}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View className="bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/30">
+                            <Text className="text-amber-500 text-[9px] font-medium">Pendente</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Contexto no Documento */}
+                      {term.contextSentence ? (
+                        <Text
+                          className={`text-[10px] italic mb-2.5 ${
+                            isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                          }`}
+                          numberOfLines={2}
+                        >
+                          "{term.contextSentence}"
+                        </Text>
+                      ) : null}
+
+                      {/* Checklist de Opções (Radio / Checkbox) */}
+                      <Text className="text-[9px] uppercase tracking-wider text-[#6b8cff] font-semibold mb-1.5">
+                        {t("chooseDesiredTranslation")}
+                      </Text>
+                      <View className="flex-col gap-1.5 mb-2.5">
+                        {term.suggestedOptions.map((opt, optIdx) => {
+                          const isOptionSelected = currentChoice === opt;
+                          return (
+                            <TouchableOpacity
+                              key={optIdx}
+                              className={`p-2 rounded-lg border transition-all flex-row items-center gap-2 ${
+                                isOptionSelected
+                                  ? "bg-[#6b8cff]/20 border-[#6b8cff] shadow-sm"
+                                  : isLight
+                                  ? "bg-neutral-50 border-neutral-200 hover:bg-neutral-100"
+                                  : "bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.07]"
+                              }`}
+                              onPress={() => handleSelectOptionChoice(term, opt)}
+                              activeOpacity={0.8}
+                            >
+                              <View
+                                className={`w-3.5 h-3.5 rounded-full border items-center justify-center ${
+                                  isOptionSelected
+                                    ? "border-[#6b8cff] bg-[#6b8cff]"
+                                    : isLight
+                                    ? "border-neutral-300"
+                                    : "border-white/20"
+                                }`}
+                              >
+                                {isOptionSelected && (
+                                  <View className="w-1.5 h-1.5 rounded-full bg-white" />
+                                )}
+                              </View>
+                              <Text
+                                className={`text-[11px] flex-1 ${
+                                  isOptionSelected
+                                    ? isLight
+                                      ? "text-blue-900 font-bold"
+                                      : "text-white font-semibold"
+                                    : isLight
+                                    ? "text-neutral-700"
+                                    : "text-[#c8c8d8]"
+                                }`}
+                              >
+                                {opt}
+                              </Text>
+                              {isOptionSelected && (
+                                <Feather name="check" size={11} color="#6b8cff" />
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      {/* Campo de Tradução Customizada / Própria */}
+                      <View
+                        className={`flex-row gap-1.5 pt-2 border-t ${
+                          isLight ? "border-neutral-100" : "border-white/[0.05]"
+                        }`}
+                      >
+                        <TextInput
+                          className={`flex-1 rounded-lg px-2.5 py-1 text-[11px] border ${
+                            isLight
+                              ? "bg-neutral-50 border-neutral-200 text-neutral-900"
+                              : "bg-white/[0.05] border-white/[0.08] text-white focus:border-[#6b8cff]/40"
+                          }`}
+                          placeholder={t("selectCustomTermChoice")}
+                          placeholderTextColor={isLight ? "#9ca3af" : "#6b6b80"}
+                          value={customTermInputs[term.id] || ""}
+                          onChangeText={(val) => {
+                            setCustomTermInputs((prev) => ({ ...prev, [term.id]: val }));
+                            if (val.trim()) {
+                              handleSelectOptionChoice(term, val.trim());
+                            }
+                          }}
+                          onSubmitEditing={() => handleApplyCustomOption(term)}
+                        />
+                        <TouchableOpacity
+                          className={`px-2.5 py-1 rounded-lg items-center justify-center active:scale-95 ${
+                            customTermInputs[term.id]?.trim()
+                              ? "bg-[#6b8cff]"
+                              : "bg-white/[0.08] opacity-50"
+                          }`}
+                          onPress={() => handleApplyCustomOption(term)}
+                          disabled={!customTermInputs[term.id]?.trim()}
+                        >
+                          <Feather name="check" size={11} color="#ffffff" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            {/* Rodapé Fixo da Checklist com Botão Único de Confirmação */}
+            {identifiedTerms.length > 0 && (
+              <View
+                className={`p-3 border-t shadow-lg ${
+                  isLight ? "bg-white border-neutral-200" : "bg-[#0c0c12] border-white/[0.08]"
+                }`}
+              >
+                <View className="flex-row items-center justify-between mb-2 px-0.5">
+                  <Text
+                    className={`text-[10px] font-semibold ${
+                      isLight ? "text-neutral-600" : "text-[#a0a0b8]"
+                    }`}
+                  >
+                    {t("termsDecidedSummary", {
+                      decided: decidedCount,
+                      total: identifiedTerms.length,
+                    })}
+                  </Text>
+                  {decidedCount === identifiedTerms.length && (
+                    <View className="flex-row items-center gap-1 bg-emerald-500/15 px-1.5 py-0.5 rounded-full">
+                      <Feather name="check" size={9} color="#10b981" />
+                      <Text className="text-[9px] text-emerald-500 font-bold">100% Configurado</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Botão de Confirmação em Lote */}
+                <TouchableOpacity
+                  className="w-full py-2.5 px-3 rounded-xl bg-[#6b8cff] hover:bg-[#5b7ce8] active:scale-95 transition-all flex-row items-center justify-center gap-2 shadow-md shadow-[#6b8cff]/25 mb-1.5"
+                  onPress={handleConfirmAll}
+                  disabled={isTranslating}
+                >
+                  {isTranslating ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <>
+                      <Feather name="check-circle" size={13} color="#ffffff" />
+                      <Text className="text-white text-xs font-bold">
+                        {t("confirmAllDecisions")}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* Botão Secundário: Usar Padrão para Todos */}
+                <TouchableOpacity
+                  className={`w-full py-1.5 px-3 rounded-xl border items-center justify-center active:scale-95 ${
+                    isLight
+                      ? "bg-neutral-50 border-neutral-200 hover:bg-neutral-100"
+                      : "bg-white/[0.03] border-white/10 hover:bg-white/[0.06]"
+                  }`}
+                  onPress={handleUseDefaultAll}
+                  disabled={isTranslating}
+                >
+                  <Text className={`text-[11px] ${isLight ? "text-neutral-600" : "text-[#a0a0b8]"}`}>
+                    {t("useDefaultChoice")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             )}
-          </ScrollView>
+          </View>
         )}
 
         {/* Input de Chat */}

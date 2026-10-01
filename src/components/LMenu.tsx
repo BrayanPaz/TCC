@@ -27,6 +27,9 @@ import {
   UserProfile,
 } from "../controllers/userController";
 import { useLanguage } from "../context/LanguageContext";
+import { useAccessibility } from "../context/AccessibilityContext";
+import { useRouter } from "expo-router";
+import { isCurrentUserAdmin } from "../controllers/adminController";
 import { UILanguage } from "../i18n/translations";
 
 export interface LMenuProps {
@@ -72,10 +75,13 @@ export default function LMenu({
   onNewTranslation,
   onLogout,
 }: LMenuProps) {
+  const router = useRouter();
+  const a11y = useAccessibility();
   const { t, language, setLanguage, availableLanguages } = useLanguage();
 
   // Estados do Perfil do Usuário
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const isAdmin = isCurrentUserAdmin(userProfile);
   const [editDisplayName, setEditDisplayName] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
   const [isSavingName, setIsSavingName] = useState(false);
@@ -809,6 +815,19 @@ export default function LMenu({
             </Text>
           </TouchableOpacity>
 
+          {/* Botão Painel Admin (Visível apenas para Administradores) */}
+          {isAdmin && (
+            <TouchableOpacity
+              className={`p-2 rounded-lg mr-1 active:scale-90 transition-all ${
+                isLight ? "hover:bg-blue-100 bg-blue-50 border border-blue-200" : "hover:bg-[#6b8cff]/20 bg-[#6b8cff]/10 border border-[#6b8cff]/30"
+              }`}
+              onPress={() => router.push("/admin")}
+              accessibilityLabel={t("adminPanel")}
+            >
+              <Feather name="shield" size={13} color="#6b8cff" />
+            </TouchableOpacity>
+          )}
+
           {/* Botão Idioma do Site (Globo) */}
           <TouchableOpacity
             className={`p-2 rounded-lg mr-1 active:scale-90 transition-all ${
@@ -1445,6 +1464,46 @@ export default function LMenu({
                 </View>
               </View>
 
+              {/* PAINEL ADMINISTRATIVO (VISÍVEL APENAS PARA ADMINS) */}
+              {isAdmin && (
+                <View className="mb-4">
+                  <View
+                    className={`rounded-xl p-3.5 border ${
+                      isLight
+                        ? "bg-blue-50/80 border-blue-200"
+                        : "bg-[#6b8cff]/10 border-[#6b8cff]/30 shadow-sm shadow-[#6b8cff]/10"
+                    }`}
+                  >
+                    <View className="flex-row items-center justify-between mb-1.5">
+                      <View className="flex-row items-center gap-2">
+                        <Feather name="shield" size={14} color="#6b8cff" />
+                        <Text className={`text-xs font-bold ${isLight ? "text-blue-900" : "text-white"}`}>
+                          {t("adminPanel")}
+                        </Text>
+                      </View>
+                      <View className="bg-[#6b8cff]/20 px-2 py-0.5 rounded-full">
+                        <Text className="text-[9px] font-bold text-[#6b8cff] uppercase">
+                          {t("adminRoleAdmin")}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text className={`text-[11px] mb-3 leading-relaxed ${isLight ? "text-neutral-600" : "text-[#c8c8d8]"}`}>
+                      {t("adminSubtitle")}
+                    </Text>
+                    <TouchableOpacity
+                      className="py-2 px-3 rounded-lg bg-[#6b8cff] flex-row items-center justify-center gap-1.5 active:scale-95 shadow-sm"
+                      onPress={() => {
+                        setShowProfileModal(false);
+                        router.push("/admin");
+                      }}
+                    >
+                      <Feather name="external-link" size={12} color="#ffffff" />
+                      <Text className="text-white text-xs font-semibold">{t("adminTitle")}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
               {/* 1. ESTATÍSTICAS DA CONTA */}
               <View className="mb-4">
                 <Text
@@ -1607,7 +1666,148 @@ export default function LMenu({
                 </TouchableOpacity>
               </View>
 
-              {/* 5. AÇÕES DA CONTA: REDEFINIR SENHA & EXPORTAR DADOS */}
+              {/* 5. ACESSIBILIDADE */}
+              <View className="mb-4">
+                <Text
+                  className={`text-[10px] uppercase font-bold tracking-wider mb-1.5 ${
+                    isLight ? "text-neutral-500" : "text-[#6b6b80]"
+                  }`}
+                >
+                  {t("a11yTitle")}
+                </Text>
+                <View
+                  className={`rounded-xl p-3 border gap-3 ${
+                    isLight ? "bg-neutral-50 border-neutral-200" : "bg-white/[0.03] border-white/[0.06]"
+                  }`}
+                >
+                  {/* Escala de Fonte */}
+                  <View>
+                    <Text className={`text-[11px] font-medium mb-1.5 ${isLight ? "text-neutral-700" : "text-[#e8e8f0]"}`}>
+                      {t("a11yFontSize")}
+                    </Text>
+                    <View className="flex-row gap-1">
+                      {[
+                        { key: "small", label: t("a11yFontSmall") },
+                        { key: "normal", label: t("a11yFontNormal") },
+                        { key: "large", label: t("a11yFontLarge") },
+                        { key: "xlarge", label: t("a11yFontXLarge") },
+                      ].map((scale) => {
+                        const isActive = a11y.fontScale === scale.key;
+                        return (
+                          <TouchableOpacity
+                            key={scale.key}
+                            className={`flex-1 py-1.5 rounded-lg items-center justify-center border transition-all ${
+                              isActive
+                                ? "bg-[#6b8cff] border-[#6b8cff]"
+                                : isLight
+                                ? "bg-white border-neutral-200"
+                                : "bg-white/[0.05] border-white/10"
+                            }`}
+                            onPress={() => a11y.setFontScale(scale.key as any)}
+                          >
+                            <Text
+                              className={`text-[10px] font-medium ${
+                                isActive ? "text-white font-bold" : isLight ? "text-neutral-700" : "text-[#c8c8d8]"
+                              }`}
+                            >
+                              {scale.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {/* Switches de Acessibilidade */}
+                  <View className="gap-2 pt-1 border-t border-white/[0.05]">
+                    {/* Alto Contraste */}
+                    <TouchableOpacity
+                      className="flex-row items-center justify-between py-1 active:opacity-80"
+                      onPress={() => a11y.setHighContrast(!a11y.highContrast)}
+                    >
+                      <Text className={`text-xs ${isLight ? "text-neutral-800" : "text-[#e8e8f0]"}`}>
+                        {t("a11yHighContrast")}
+                      </Text>
+                      <View
+                        className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
+                          a11y.highContrast ? "bg-[#6b8cff]" : isLight ? "bg-neutral-300" : "bg-white/20"
+                        }`}
+                      >
+                        <View
+                          className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                            a11y.highContrast ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Fonte para Dislexia */}
+                    <TouchableOpacity
+                      className="flex-row items-center justify-between py-1 active:opacity-80"
+                      onPress={() => a11y.setDyslexiaFont(!a11y.dyslexiaFont)}
+                    >
+                      <Text className={`text-xs ${isLight ? "text-neutral-800" : "text-[#e8e8f0]"}`}>
+                        {t("a11yDyslexiaFont")}
+                      </Text>
+                      <View
+                        className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
+                          a11y.dyslexiaFont ? "bg-[#6b8cff]" : isLight ? "bg-neutral-300" : "bg-white/20"
+                        }`}
+                      >
+                        <View
+                          className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                            a11y.dyslexiaFont ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Reduzir Movimento */}
+                    <TouchableOpacity
+                      className="flex-row items-center justify-between py-1 active:opacity-80"
+                      onPress={() => a11y.setReduceMotion(!a11y.reduceMotion)}
+                    >
+                      <Text className={`text-xs ${isLight ? "text-neutral-800" : "text-[#e8e8f0]"}`}>
+                        {t("a11yReduceMotion")}
+                      </Text>
+                      <View
+                        className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
+                          a11y.reduceMotion ? "bg-[#6b8cff]" : isLight ? "bg-neutral-300" : "bg-white/20"
+                        }`}
+                      >
+                        <View
+                          className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                            a11y.reduceMotion ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Sublinhar Links */}
+                    <TouchableOpacity
+                      className="flex-row items-center justify-between py-1 active:opacity-80"
+                      onPress={() => a11y.setUnderlineLinks(!a11y.underlineLinks)}
+                    >
+                      <Text className={`text-xs ${isLight ? "text-neutral-800" : "text-[#e8e8f0]"}`}>
+                        {t("a11yUnderlineLinks")}
+                      </Text>
+                      <View
+                        className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
+                          a11y.underlineLinks ? "bg-[#6b8cff]" : isLight ? "bg-neutral-300" : "bg-white/20"
+                        }`}
+                      >
+                        <View
+                          className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                            a11y.underlineLinks ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              {/* 6. AÇÕES DA CONTA: REDEFINIR SENHA & EXPORTAR DADOS */}
               <View className="mb-4 gap-2">
                 <Text
                   className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${
