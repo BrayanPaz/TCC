@@ -48,7 +48,7 @@ export default function AdminScreen() {
       setLoading(false);
     });
     return unsubscribe;
-  }, []);
+  }, [router]);
 
   return (
     <SafeAreaView className="flex-1 bg-[#0c0c12]">

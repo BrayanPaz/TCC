@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Modal,
 } from "react-native";
@@ -52,7 +51,7 @@ export default function SignUp() {
       }
     }
     checkRedirect();
-  }, []);
+  }, [router]);
 
   const handleSignUp = async () => {
     if (!email || !password || !confirmPassword) {

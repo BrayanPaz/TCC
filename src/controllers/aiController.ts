@@ -14,7 +14,7 @@ interface TranslateOptions {
   text: string;
   sourceLang?: string;
   targetLang?: string;
-  glossary?: Array<{ original: string; translation: string }>;
+  glossary?: { original: string; translation: string }[];
   customInstruction?: string;
 }
 
@@ -24,7 +24,7 @@ interface TranslateDocumentOptions {
   fileName: string;
   sourceLang?: string;
   targetLang?: string;
-  glossary?: Array<{ original: string; translation: string }>;
+  glossary?: { original: string; translation: string }[];
   customInstruction?: string;
 }
 
@@ -179,7 +179,7 @@ Retorne o documento LaTeX completo e pronto.`;
  * Envia uma mensagem para o Copiloto Agêntico no chat lateral
  */
 export async function sendCopilotMessage(
-  history: Array<{ role: "user" | "model"; text: string }>,
+  history: { role: "user" | "model"; text: string }[],
   currentDocContext: { original: string; translated: string },
   userMessage: string
 ): Promise<{ reply: string; error: string | null }> {

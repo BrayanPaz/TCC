@@ -1,4 +1,5 @@
 import { auth } from "./firebaseConfig";
+import { ensureUserProfile } from "./userController";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -84,8 +85,6 @@ export function mapAuthError(error: any): { message: string; code: string } {
       };
   }
 }
-
-import { ensureUserProfile } from "./userController";
 
 /**
  * Login com E-mail e Senha

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { menuStyles as styles } from "../styles/menuStyles";
@@ -56,38 +56,18 @@ export default function RMenu({
   const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Inicializa escolhas com sugestões pré-selecionadas como checklist
-  useEffect(() => {
-    if (identifiedTerms.length > 0) {
-      const initial: Record<string, string> = {};
-      identifiedTerms.forEach((t) => {
-        if (t.selectedOption) {
-          initial[t.id] = t.selectedOption;
-        } else if (t.suggestedOptions && t.suggestedOptions.length > 0) {
-          initial[t.id] = t.suggestedOptions[0];
-        }
-      });
-      setSelectedChoices((prev) => ({ ...initial, ...prev }));
-    }
-  }, [identifiedTerms]);
-
-  // Notifica o chat quando novos termos são identificados pelo Agente 2
-  useEffect(() => {
-    if (identifiedTerms.length > 0) {
-      const alreadyHasTermsMsg = messages.some((m) => m.type === "terms-card");
-      if (!alreadyHasTermsMsg) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `terms-${Date.now()}`,
-            role: "model",
-            text: `Identifiquei ${identifiedTerms.length} termos técnicos-chave no documento. Você pode escolher como traduzir cada um na aba "Termos" ou pelos cards abaixo.`,
-            type: "terms-card",
-          },
-        ]);
+  const termCardMessage: ChatMessage | null = identifiedTerms.length > 0
+    ? {
+        id: `terms-${identifiedTerms.length}`,
+        role: "model",
+        text: `Identifiquei ${identifiedTerms.length} termos técnicos-chave no documento. Você pode escolher como traduzir cada um na aba "Termos" ou pelos cards abaixo.`,
+        type: "terms-card",
       }
-    }
-  }, [identifiedTerms]);
+    : null;
+
+  const visibleMessages = termCardMessage && !messages.some((m) => m.type === "terms-card")
+    ? [...messages, termCardMessage]
+    : messages;
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -155,7 +135,7 @@ export default function RMenu({
   const handleConfirmAll = () => {
     const decisions: TermDecision[] = identifiedTerms.map((t) => ({
       ...t,
-      selectedOption: selectedChoices[t.id] || t.suggestedOptions[0] || t.originalTerm,
+      selectedOption: selectedChoices[t.id] || t.selectedOption || t.suggestedOptions[0] || t.originalTerm,
     }));
 
     if (onConfirmDecisions) {
@@ -284,7 +264,7 @@ export default function RMenu({
             showsVerticalScrollIndicator={false}
             onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
           >
-            {messages.map((m) => {
+            {visibleMessages.map((m) => {
               if (m.type === "terms-card" && identifiedTerms.length > 0) {
                 return (
                   <View
@@ -391,7 +371,7 @@ export default function RMenu({
                     term.selectedOption ||
                     term.suggestedOptions[0] ||
                     term.originalTerm;
-                  const isDecided = Boolean(selectedChoices[term.id]);
+                  const isDecided = Boolean(selectedChoices[term.id] || term.selectedOption || term.suggestedOptions[0]);
 
                   return (
                     <View
@@ -418,7 +398,7 @@ export default function RMenu({
                             }`}
                             numberOfLines={1}
                           >
-                            "{term.originalTerm}"
+                            {`"${term.originalTerm}"`}
                           </Text>
                         </View>
                         {isDecided ? (
@@ -443,7 +423,7 @@ export default function RMenu({
                           }`}
                           numberOfLines={2}
                         >
-                          "{term.contextSentence}"
+                          {`"${term.contextSentence}"`}
                         </Text>
                       ) : null}
 

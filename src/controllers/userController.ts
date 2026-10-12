@@ -112,7 +112,7 @@ export async function ensureUserProfile(
     await setDoc(userRef, newProfile);
     saveLocalProfile(user.uid, newProfile);
     return newProfile;
-  } catch (error: any) {
+  } catch {
     // Trata erro de permissão (permission-denied) sem disparar o LogBox vermelho do Expo
     console.warn(
       "[Translatio Profile] Aviso: Coleção 'users' no Firestore sem permissão configurada. Usando perfil local/Firebase Auth."
@@ -135,7 +135,7 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
       saveLocalProfile(uid, data);
       return data;
     }
-  } catch (error) {
+  } catch {
     // Silencia erro de regras do Firestore para não disparar o LogBox vermelho
   }
 
@@ -211,7 +211,7 @@ export async function updateUserProfileData(
       }
 
       await setDoc(userRef, firestorePayload, { merge: true });
-    } catch (fsErr) {
+    } catch {
       console.warn(
         "[Translatio Profile] Perfil salvo no Auth e localmente. Firestore 'users' pendente de regras."
       );
@@ -268,7 +268,7 @@ export async function compressImageToDataUrl(file: File | Blob): Promise<string>
           ctx.drawImage(img, 0, 0, width, height);
           const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
           resolve(dataUrl);
-        } catch (e) {
+        } catch {
           resolve(reader.result as string);
         }
       };

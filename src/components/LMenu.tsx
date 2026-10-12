@@ -128,7 +128,7 @@ export default function LMenu({
       }
     }
     loadProfile();
-  }, [auth.currentUser, showProfileModal]);
+  }, [showProfileModal]);
 
   // Estados de busca e edição inline de chat
   const [searchQuery, setSearchQuery] = useState("");
@@ -148,7 +148,12 @@ export default function LMenu({
   const [collapsedGroups, setCollapsedGroups] = useState<{ [groupId: string]: boolean }>({});
 
   // Estados do Menu de Usuário (Estatísticas, Instrução Padrão, Reset de Senha, Exportação, Importação)
-  const [customPrompt, setCustomPrompt] = useState("");
+  const [customPrompt, setCustomPrompt] = useState(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return localStorage.getItem("translatio_default_system_instruction") || "";
+    }
+    return "";
+  });
   const [promptSaved, setPromptSaved] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [dataExported, setDataExported] = useState(false);
@@ -156,14 +161,6 @@ export default function LMenu({
   const [importFeedback, setImportFeedback] = useState<string | null>(null);
 
   const isLight = theme === "light";
-
-  // Carrega instrução padrão global salva
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.localStorage) {
-      const saved = localStorage.getItem("translatio_default_system_instruction") || "";
-      setCustomPrompt(saved);
-    }
-  }, []);
 
   // Cálculo de Estatísticas da Conta
   const totalWords = history.reduce((acc, item) => {
@@ -365,7 +362,7 @@ export default function LMenu({
               setImportFeedback(`✓ ${res.importedChats} chats, ${res.importedGroups} pastas`);
               onImportCompleted?.();
             }
-          } catch (err: any) {
+          } catch {
             setImportFeedback("❌ Erro ao ler arquivo.");
           } finally {
             setImporting(false);
@@ -1071,7 +1068,7 @@ export default function LMenu({
             </View>
 
             <Text className={`text-xs mb-3 italic ${isLight ? "text-neutral-600" : "text-[#a0a0b8]"}`} numberOfLines={1}>
-              Documento: "{pendingMoveChat?.title}"
+              {`Documento: "${pendingMoveChat?.title || ""}"`}
             </Text>
 
             <ScrollView className="max-h-56 gap-1 mb-3" showsVerticalScrollIndicator={false}>

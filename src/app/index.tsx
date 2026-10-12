@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -17,7 +17,6 @@ import { Feather } from "@expo/vector-icons";
 import { auth } from "../controllers/firebaseConfig";
 import { logoutUser } from "../controllers/authController";
 import {
-  runAgenticTranslationPipeline,
   runPipelinePhase1,
   runPipelinePhase2,
   updateTranslationWithTermDecision,
@@ -54,6 +53,8 @@ import { AVAILABLE_TRANSLATION_LANGUAGES } from "../config/languages";
 
 // Catálogo completo de idiomas suportados para tradução
 const AVAILABLE_LANGUAGES = AVAILABLE_TRANSLATION_LANGUAGES;
+
+const getNowTimestamp = (): number => Date.now();
 
 interface UploadedFile {
   name: string;
@@ -101,7 +102,12 @@ export default function Index() {
   const dropzoneRef = React.useRef<any>(null);
   const [sourceLang, setSourceLang] = useState("auto");
   const [targetLang, setTargetLang] = useState("pt-BR");
-  const [promptInstructions, setPromptInstructions] = useState("");
+  const [promptInstructions, setPromptInstructions] = useState(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return localStorage.getItem("translatio_default_system_instruction") || "";
+    }
+    return "";
+  });
 
   const [isTranslating, setIsTranslating] = useState(false);
   const [pipelineProgress, setPipelineProgress] = useState<AgenticPipelineProgress | null>(null);
@@ -144,28 +150,6 @@ export default function Index() {
   const [newOriginalTerm, setNewOriginalTerm] = useState("");
   const [newTranslatedTerm, setNewTranslatedTerm] = useState("");
 
-  // Monitora Autenticação
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (!user) {
-        router.replace("/login");
-      } else {
-        loadUserData();
-      }
-    });
-    return unsubscribe;
-  }, []);
-
-  // Carrega instrução padrão global se configurada no perfil
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.localStorage) {
-      const saved = localStorage.getItem("translatio_default_system_instruction");
-      if (saved && !promptInstructions) {
-        setPromptInstructions(saved);
-      }
-    }
-  }, []);
-
   const loadUserData = async () => {
     const { terms } = await getGlossaryTerms();
     setGlossary(terms);
@@ -177,8 +161,20 @@ export default function Index() {
     setGroups(userGroups);
   };
 
+  // Monitora Autenticação
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        router.replace("/login");
+      } else {
+        loadUserData();
+      }
+    });
+    return unsubscribe;
+  }, [router]);
+
   // Processamento unificado de arquivo selecionado ou arrastado (PDF, Imagens, TEX, DOCX)
-  const processSelectedFile = (file: File) => {
+  const processSelectedFile = useCallback((file: File) => {
     if (!file) return;
 
     // ✅ PASSO 3: Limite de Tamanho de Arquivo (15 MB)
@@ -222,7 +218,7 @@ export default function Index() {
       setInputText("");
     };
     reader.readAsDataURL(file);
-  };
+  }, [t]);
 
   // Seletor de Arquivos (PDF, Imagens, TEX, DOCX) via clique
   const handlePickDocument = () => {
@@ -402,7 +398,7 @@ export default function Index() {
         dropEl.removeEventListener("drop", handleDropzoneDrop);
       }
     };
-  }, [viewMode, selectedFile]);
+  }, [viewMode, selectedFile, processSelectedFile]);
 
   // Notificação de segurança e título dinâmico da aba durante a tradução
   useEffect(() => {
@@ -434,7 +430,6 @@ export default function Index() {
   // ✅ Cronômetro de tempo decorrido durante a tradução
   useEffect(() => {
     if (!isTranslating || !activeTranslatingDoc) {
-      setElapsedSeconds(0);
       return;
     }
     const interval = setInterval(() => {
@@ -487,7 +482,7 @@ export default function Index() {
     const translatingDocId = activeHistoryIdRef.current;
 
     // ✅ Setar documento ativo em tradução
-    setActiveTranslatingDoc({ id: activeHistoryId, title, startedAt: Date.now() });
+    setActiveTranslatingDoc({ id: activeHistoryId, title, startedAt: getNowTimestamp() });
 
     // Executa Fase 1: Decomposição e Análise de Terminologia
     const phase1 = await runPipelinePhase1({
@@ -601,7 +596,7 @@ export default function Index() {
     setActiveTranslatingDoc({
       id: activeHistoryId,
       title: phase1Data.docTitle,
-      startedAt: Date.now(),
+      startedAt: getNowTimestamp(),
     });
 
     const userDecisionsToApply = skipCustomDecisions ? [] : identifiedTerms.filter((t) => t.selectedOption);
@@ -1394,7 +1389,7 @@ export default function Index() {
                             className="bg-[#6b8cff]/15 border border-[#6b8cff]/30 px-2.5 py-0.5 rounded-full"
                           >
                             <Text className="text-[#6b8cff] text-[10px] font-mono font-medium">
-                              "{term}"
+                              {`"${term}"`}
                             </Text>
                           </View>
                         ))}

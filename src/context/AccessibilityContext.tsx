@@ -62,17 +62,14 @@ function applyToDocument(settings: AccessibilitySettings) {
 }
 
 export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useState<AccessibilitySettings>(DEFAULTS);
+  const [settings, setSettings] = useState<AccessibilitySettings>(() => loadSettings());
 
   useEffect(() => {
-    const loaded = loadSettings();
-    setSettings(loaded);
-    applyToDocument(loaded);
-  }, []);
+    applyToDocument(settings);
+  }, [settings]);
 
   const persist = (next: AccessibilitySettings) => {
     setSettings(next);
-    applyToDocument(next);
     if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     }

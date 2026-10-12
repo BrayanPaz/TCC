@@ -8,6 +8,19 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: calc(16px * var(--a11y-font-scale, 1));
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Segoe UI Emoji",
+    "Apple Color Emoji",
+    "Noto Color Emoji",
+    "Noto Emoji",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "Noto Sans CJK KR",
+    "Arial Unicode MS",
+    sans-serif;
 }
 
 .a11y-high-contrast {
@@ -22,7 +35,22 @@ html, body, #root {
 .a11y-dyslexia,
 .a11y-dyslexia body,
 .a11y-dyslexia * {
-  font-family: "Lexend", "Comic Sans MS", "Atkinson Hyperlegible", system-ui, sans-serif !important;
+  font-family:
+    "Lexend",
+    "Atkinson Hyperlegible",
+    "Comic Sans MS",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Segoe UI Emoji",
+    "Apple Color Emoji",
+    "Noto Color Emoji",
+    "Noto Emoji",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "Noto Sans CJK KR",
+    "Arial Unicode MS",
+    sans-serif !important;
   letter-spacing: 0.03em;
   word-spacing: 0.08em;
   line-height: 1.7;

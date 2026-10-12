@@ -231,7 +231,7 @@ export async function agentTranslateAndSynthesize(
   latexContent: string,
   sourceLang: string,
   targetLang: string,
-  glossary: Array<{ original: string; translation: string }>,
+  glossary: { original: string; translation: string }[],
   userDecisions: TermDecision[] = [],
   customInstruction: string = "",
   signal?: AbortSignal
@@ -418,7 +418,7 @@ export async function runPipelinePhase2(options: {
   rawCleanContent: string;
   sourceLang: string;
   targetLang: string;
-  glossary: Array<{ original: string; translation: string }>;
+  glossary: { original: string; translation: string }[];
   userDecisions?: TermDecision[];
   customInstruction?: string;
   formulasCount?: number;
@@ -504,7 +504,7 @@ export async function runAgenticTranslationPipeline(options: {
   fileName?: string;
   sourceLang: string;
   targetLang: string;
-  glossary: Array<{ original: string; translation: string }>;
+  glossary: { original: string; translation: string }[];
   userDecisions?: TermDecision[];
   customInstruction?: string;
   onProgress?: (progress: AgenticPipelineProgress) => void;

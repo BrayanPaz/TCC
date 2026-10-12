@@ -1,6 +1,4 @@
-import { StyleSheet, Dimensions } from 'react-native';
-
-const { width } = Dimensions.get('window');
+import { StyleSheet } from 'react-native';
 
 export const styles = StyleSheet.create({
   // Tema Global (Dark Mode)

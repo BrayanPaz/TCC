@@ -15,7 +15,6 @@ import {
   loginWithGoogleRedirect,
   checkRedirectResult,
   resetPassword,
-  resendVerificationEmail,
 } from "../controllers/authController";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authStyles as styles } from "../styles/authStyles";
@@ -37,9 +36,6 @@ export default function LogIn() {
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSuccess, setForgotSuccess] = useState(false);
 
-  // Estado de aviso de e-mail não verificado
-  const [unverifiedNotice, setUnverifiedNotice] = useState(false);
-
   // Checa se o usuário retornou de um login por redirecionamento do Google
   useEffect(() => {
     async function checkRedirect() {
@@ -57,7 +53,7 @@ export default function LogIn() {
       }
     }
     checkRedirect();
-  }, []);
+  }, [router]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -67,16 +63,12 @@ export default function LogIn() {
 
     setLoading(true);
     setAuthError(null);
-    setUnverifiedNotice(false);
-    const { user, error, errorCode, needsVerification } = await loginUser(email, password);
+    const { user, error, errorCode } = await loginUser(email, password);
     setLoading(false);
 
     if (error) {
       setAuthError({ message: error, code: errorCode });
     } else if (user) {
-      if (needsVerification) {
-        setUnverifiedNotice(true);
-      }
       router.replace("/");
     }
   };
