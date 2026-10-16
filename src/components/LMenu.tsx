@@ -560,9 +560,12 @@ export default function LMenu({
         <View className="p-3 pb-2">
           {/* Logo Brand */}
           <View className="flex-row items-center gap-2 mb-3 px-1">
-            <View className="w-6 h-6 rounded-lg bg-[#6b8cff] items-center justify-center shadow-sm">
-              <Feather name="globe" size={13} color="#ffffff" />
-            </View>
+            <Image
+              source={require("../../assets/images/translatio-logo.png")}
+              style={{ width: 28, height: 28 }}
+              resizeMode="contain"
+              accessible={false}
+            />
             <Text
               className={`text-sm font-bold tracking-tight ${
                 isLight ? "text-neutral-900" : "text-white"

@@ -108,10 +108,6 @@ const styles = StyleSheet.create({
   loadingLogo: {
     width: 156,
     height: 156,
-    shadowColor: '#6b8cff',
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 0 },
   },
   loadingTitle: {
     color: '#ffffff',
